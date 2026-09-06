@@ -120,7 +120,7 @@ def write_features(df: pd.DataFrame) -> int:
         log.warning("write_features called with an empty frame, skipping")
         return 0
 
-    clean = _sanitize(df)
+    clean = _preserve_station_columns(_sanitize(df))
 
     if not settings.has_hopsworks:
         _write_offline(clean)
@@ -129,9 +129,74 @@ def write_features(df: pd.DataFrame) -> int:
 
     fg = get_feature_group()
     clean = _conform(clean, fg)
-    fg.insert(clean, write_options={"wait_for_job": False})
+
+    # Two phases, and only the first one matters for correctness. The upload
+    # puts the rows on Kafka (and in the online store); the materialization job
+    # moves them into the offline table. Starting that job is an HTTP call the
+    # cluster refuses while a previous execution of the same job is still
+    # running - which the first CI run hit, sixty seconds after a 36k-row
+    # backfill kicked one off. Pending rows are consumed by whichever execution
+    # comes next, so a refused start is a warning, not a lost hour.
+    fg.insert(clean, write_options={"start_offline_materialization": False})
     log.info("inserted %d rows into %s v%d", len(clean), settings.feature_group, settings.feature_group_version)
+    try:
+        fg.materialization_job.run(await_termination=False)
+        log.info("materialization job started")
+    except Exception as exc:
+        log.warning("materialization job not started (%s); the next execution will pick these rows up", str(exc)[:160])
     return len(clean)
+
+
+# Columns only the AQICN station produces. Everything else in a row is CAMS or
+# weather and is legitimately refreshed by every writer.
+STATION_COLUMNS = ("station", "aqi_station", "pm25_iaqi", "pm10_iaqi", "o3_iaqi", "no2_iaqi", "so2_iaqi", "co_iaqi")
+
+
+def _preserve_station_columns(clean: pd.DataFrame) -> pd.DataFrame:
+    """Carry station values already in the store into rows that arrive without them.
+
+    Both stores replace the whole row on upsert. The hourly run re-fetches a
+    three-day window in which exactly one row - the current hour - has a station
+    reading; the other 71 arrive with NaN there and, written as-is, erase the
+    readings the previous runs stored. The backfill carries no station columns
+    at all and would wipe every one. Either way the CAMS-to-station calibration
+    could never see more than one overlapping hour, which is what happened.
+
+    So: for every key being written, where the incoming frame has no station
+    value and the store does, keep the store's. Costs one read of the store per
+    write; the hourly run can afford that.
+    """
+    if "ts" not in clean.columns or "city" not in clean.columns:
+        return clean
+    try:
+        existing = read_features()
+    except Exception as exc:  # a store that cannot be read yet is simply empty
+        log.warning("could not read the store to preserve station columns: %s", str(exc)[:120])
+        return clean
+    if existing.empty:
+        return clean
+
+    cols = [c for c in STATION_COLUMNS if c in existing.columns]
+    # read_features() hands back tz-aware UTC; _sanitize() made the incoming ts
+    # naive. Compare like with like or the key match silently finds nothing.
+    existing = existing.assign(ts=pd.to_datetime(existing["ts"], utc=True).dt.tz_localize(None))
+    existing = existing[existing["ts"].isin(clean["ts"])]
+    if not cols or existing.empty or existing[cols].notna().sum().sum() == 0:
+        return clean
+
+    stored = existing.set_index(["city", "ts"])[cols]
+    out = clean.set_index(["city", "ts"])
+    kept = 0
+    for c in cols:
+        if c not in out.columns:
+            out[c] = None
+        fill = stored[c].reindex(out.index)
+        take = out[c].isna() & fill.notna()
+        kept += int(take.sum())
+        out[c] = out[c].where(~take, fill)
+    if kept:
+        log.info("preserved %d station value(s) already in the store", kept)
+    return out.reset_index()
 
 
 # Hopsworks/Hive type name -> the null this column should carry when absent.

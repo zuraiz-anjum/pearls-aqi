@@ -83,6 +83,13 @@ and it will route through that instead of importing the model in-process.
 
 ## 4. Things that will actually go wrong
 
+**The cron workflows never run and `gh workflow list` shows only `ci`.** The files are
+valid — they pass GitHub's own schema — but they arrived in the push that *created* the
+default branch and were never modified after, and GitHub does not register a workflow
+until it sees the file change. `ci` registered only because a push event ran it. Three
+hourly slots went by with nothing. The fix is any modification to the file (a comment
+will do) pushed to the default branch; they register within seconds.
+
 **Hopsworks SDK install fails on Windows with "Microsoft Visual C++ 14.0 or greater is
 required".** The culprit is `twofish`, a C extension two levels down the SDK's dependency
 tree (`hopsworks → pyjks → twofish`) that ships no Windows wheel for *any* Python version.
@@ -113,6 +120,23 @@ on the first real writes, all now handled in `store.py`:
 
 If you genuinely add or rename a feature, bump `feature_group_version` in `config.py`
 rather than trying to alter the group in place.
+
+**Every materialization job shows FAILED in the Hopsworks UI, yet the data is there.** The
+job's Hudi sync commits the rows (`totalErrorRecords=0` in its log) and then dies on a
+post-commit REST call that returns a server-side 500, "Transaction marked for rollback".
+Cosmetic for us: `read_features()` returns everything that was written. The writer uploads
+with `start_offline_materialization=False` and starts the job itself inside a try/except,
+because the cluster also refuses to *start* a second execution while one is running, and a
+refused start is not a lost hour — the next execution consumes whatever is pending.
+
+**AQICN says there is no live Lahore station.** Its keyword search and geo feed only know
+*official* monitors, and the one official Lahore monitor (US Embassy, uid 11765) stopped
+in February 2025 — but keeps serving that last reading, which is why the pipeline now
+treats anything older than six hours as absent. The Punjab EPA network is on AQICN too,
+hourly, under *negative* uids that only `map/bounds/?networks=all` exposes. The default
+`AQICN_STATION=@-576577` is Egerton Road, central Lahore. Others in the same network:
+`@-576556` Punjab University, `@-576565` DHA Phase 6, `@-576559` GT Road, `@-576550`
+Safari Park.
 
 **"No hudi properties found" right after an insert.** Not an error. The first insert
 launches an asynchronous materialization job, and until it finishes there is no table to
