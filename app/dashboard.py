@@ -72,9 +72,18 @@ if not _store_reachable_in_process():
 
 
 def _via_api(path: str):
+    """GET a JSON route from the API - live server or static export.
+
+    The public site is a static export on GitHub Pages, where the same routes
+    exist as files with a `.json` suffix and no query string. Try the live
+    shape first; if that is not there, try the static one.
+    """
     import httpx
 
-    resp = httpx.get(f"{API_URL}{path}", timeout=60)
+    resp = httpx.get(f"{API_URL}{path}", timeout=60, follow_redirects=True)
+    if resp.status_code == 404 and not path.endswith(".json"):
+        static_path = path.split("?", 1)[0] + ".json"
+        resp = httpx.get(f"{API_URL}{static_path}", timeout=60, follow_redirects=True)
     resp.raise_for_status()
     return resp.json()
 
@@ -98,6 +107,9 @@ def get_history(hours: int):
         df = recent_series(hours)
     if not df.empty:
         df["ts"] = pd.to_datetime(df["ts"])
+        # A static export cannot honour ?hours=; it serves its whole window.
+        # Trim here so the selector means the same thing against either source.
+        df = df[df["ts"] >= df["ts"].max() - pd.Timedelta(hours=hours)]
     return df
 
 

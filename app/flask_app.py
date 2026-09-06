@@ -85,6 +85,8 @@ def _signed(value, places: int = 1) -> str:
 @app.context_processor
 def _globals():
     return {
+        # A static export points this at a file that exists on the host.
+        "api_href": app.config.get("STATIC_API_HREF"),
         "city": settings.city,
         "version": __version__,
         "horizons": HORIZONS,

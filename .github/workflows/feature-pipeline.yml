@@ -65,3 +65,62 @@ jobs:
       - name: Summary
         if: always()
         run: echo "Ingest finished at $(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
+
+  # Render the site and the JSON API to static files and publish them. Pages
+  # cannot run Flask, but it can serve what Flask would have said, and doing it
+  # here means the public page refreshes every hour for free. Runs even if the
+  # ingest step failed - the store still has everything up to the last good hour.
+  publish:
+    needs: ingest
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    env:
+      AQICN_TOKEN: ${{ secrets.AQICN_TOKEN }}
+      HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+      HOPSWORKS_PROJECT: ${{ secrets.HOPSWORKS_PROJECT }}
+      HOPSWORKS_HOST: eu-west.cloud.hopsworks.ai
+      HOPSWORKS_PORT: "443"
+      CITY_NAME: lahore
+      CITY_LAT: "31.5497"
+      CITY_LON: "74.3436"
+      AQICN_STATION: "@-576577"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[store,explain,api]"
+
+      - name: Export the site
+        run: python -m aqi.publish --out site --clean -v
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

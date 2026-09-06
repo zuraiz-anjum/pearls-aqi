@@ -17,7 +17,7 @@
       <nav aria-label="Primary">
         <a href="{{ url_for('index') }}" {% if active == 'forecast' %}aria-current="page"{% endif %}>Forecast</a>
         <a href="{{ url_for('model_page') }}" {% if active == 'model' %}aria-current="page"{% endif %}>Model</a>
-        <a href="{{ url_for('api_predict') }}">API</a>
+        <a href="{{ api_href or url_for('api_predict') }}">API</a>
       </nav>
     </div>
   </header>
