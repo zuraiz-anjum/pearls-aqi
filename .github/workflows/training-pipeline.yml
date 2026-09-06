@@ -1,0 +1,91 @@
+name: training-pipeline
+
+# Daily retrain at 02:30 UTC (07:30 Karachi) - after the overnight hours have
+# landed, before anyone looks at the dashboard in the morning.
+on:
+  schedule:
+    - cron: "30 2 * * *"
+    # Weekly deep run on Sunday, which is the only time the GRU is worth the
+    # twenty minutes it costs.
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      deep:
+        description: "Include the TensorFlow GRU"
+        type: boolean
+        default: false
+      folds:
+        description: "Walk-forward folds"
+        default: "5"
+
+concurrency:
+  group: training-pipeline
+  cancel-in-progress: false
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+      HOPSWORKS_PROJECT: ${{ secrets.HOPSWORKS_PROJECT }}
+      AQICN_TOKEN: ${{ secrets.AQICN_TOKEN }}
+      CITY_NAME: lahore
+      CITY_LAT: "31.5497"
+      CITY_LON: "74.3436"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Decide whether this is the deep run
+        id: mode
+        run: |
+          if [ "${{ inputs.deep }}" = "true" ] || [ "${{ github.event.schedule }}" = "0 3 * * 0" ]; then
+            echo "deep=--deep" >> "$GITHUB_OUTPUT"
+          else
+            echo "deep=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[store,explain]"
+
+      - name: Install TensorFlow
+        if: steps.mode.outputs.deep != ''
+        run: pip install -e ".[deep]"
+
+      - name: Train
+        run: |
+          python -m aqi.pipelines.training_pipeline \
+            --folds "${{ inputs.folds || 5 }}" ${{ steps.mode.outputs.deep }} -v
+
+      - name: Publish the leaderboard to the run summary
+        if: always()
+        run: |
+          if [ -f reports/leaderboard.csv ]; then
+            {
+              echo "### Model leaderboard"
+              echo ""
+              echo '```'
+              column -s, -t reports/leaderboard.csv
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Keep the bundle as an artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-bundle-${{ github.run_number }}
+          path: |
+            models/bundle/manifest.json
+            reports/leaderboard.csv
+          retention-days: 30
+          if-no-files-found: warn

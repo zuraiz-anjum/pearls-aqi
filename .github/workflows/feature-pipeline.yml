@@ -1,0 +1,63 @@
+name: feature-pipeline
+
+# Hourly ingest. GitHub's scheduler is best-effort and routinely runs 5-20 minutes
+# late, occasionally skipping an hour entirely under load. That is fine here: each
+# run re-fetches the last three days, so a skipped hour is repaired by the next one
+# rather than leaving a permanent hole in the feature store.
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "How many days of recent history to re-fetch"
+        required: false
+        default: "3"
+
+concurrency:
+  # Two of these writing to the same feature group at once is asking for trouble.
+  group: feature-pipeline
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      AQICN_TOKEN: ${{ secrets.AQICN_TOKEN }}
+      HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+      HOPSWORKS_PROJECT: ${{ secrets.HOPSWORKS_PROJECT }}
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+      CITY_NAME: lahore
+      CITY_LAT: "31.5497"
+      CITY_LON: "74.3436"
+      AQICN_STATION: lahore
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        # No TensorFlow here - the hourly job never trains, and skipping it takes
+        # the install from ~3 minutes to under one.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[store]"
+
+      - name: Ingest
+        run: python -m aqi.pipelines.feature_pipeline --days "${{ inputs.days || 3 }}" -v
+
+      - name: Check alert thresholds
+        # Best effort. On the first few runs there is no trained model yet and this
+        # is expected to fail, which should not turn the whole job red.
+        continue-on-error: true
+        run: python -m aqi.alerts
+
+      - name: Summary
+        if: always()
+        run: echo "Ingest finished at $(date -u +%FT%TZ)" >> "$GITHUB_STEP_SUMMARY"
