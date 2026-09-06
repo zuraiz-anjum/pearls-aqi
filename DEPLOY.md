@@ -98,9 +98,25 @@ pip install "hopsworks[python]"
 too, but it is several GB on the system drive for one 20 KB module. Linux and macOS are
 unaffected — CI runs on Ubuntu and installs the real thing.
 
-**Feature group schema conflict.** Hopsworks pins the schema at version 1 on first
-insert. If you add or rename a feature later, the insert fails with a schema mismatch.
-Bump `feature_group_version` in `config.py` rather than trying to alter it in place.
+**Feature group schema conflict.** Hopsworks pins the schema — names *and* types — on
+the very first insert, and rejects anything that deviates afterwards. Three ways that bit
+on the first real writes, all now handled in `store.py`:
+
+- The hourly pipeline wrote first and carried the station columns; the backfill did not
+  carry them and was rejected outright. `_conform()` now fills missing columns with nulls
+  and drops strays, so the two writers land in either order.
+- The archive weather endpoint returns integer humidity and wind direction; the forecast
+  endpoint (which wrote first) gave floats. Int-into-double is a violation, not a widening.
+  `_conform()` casts to the schema's type.
+- Missing text after a merge is float `NaN`; the Avro union is `['null', 'string']` and
+  fastavro raises on `NaN` mid-upload. `_sanitize()` makes it a real `None`.
+
+If you genuinely add or rename a feature, bump `feature_group_version` in `config.py`
+rather than trying to alter the group in place.
+
+**"No hudi properties found" right after an insert.** Not an error. The first insert
+launches an asynchronous materialization job, and until it finishes there is no table to
+read. `read_features()` treats that as empty; the next hourly run reads fine.
 
 **The hourly cron does not fire on a fresh fork.** GitHub disables scheduled workflows on
 forks, and on repos with no activity for 60 days. Push a commit or hit Run workflow.
