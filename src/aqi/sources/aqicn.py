@@ -50,8 +50,16 @@ def _get(path: str) -> dict:
         raise AqicnError("AQICN_TOKEN is not set - copy .env.example to .env and fill it in")
 
     url = f"{BASE}{path}"
-    resp = requests.get(url, params={"token": settings.aqicn_token}, timeout=TIMEOUT)
-    resp.raise_for_status()
+    try:
+        resp = requests.get(url, params={"token": settings.aqicn_token}, timeout=TIMEOUT)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        # requests puts the full URL - query string, token and all - into its
+        # error messages (HTTPError included), and the caller logs the message.
+        # Actions masks secret values in its logs; a laptop does not. Say what
+        # failed, not where.
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        raise RuntimeError(f"AQICN request failed: {type(exc).__name__}{f' {status}' if status else ''}") from None
     payload = resp.json()
 
     if payload.get("status") != "ok":

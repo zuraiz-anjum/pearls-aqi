@@ -486,3 +486,25 @@ def test_read_features_always_returns_naive_utc_timestamps(tmp_path, monkeypatch
     got = store.read_features()
     assert got["ts"].dt.tz is None
     assert got["ts"].iloc[-1] == pd.Timestamp("2026-09-06 14:00")
+
+
+def test_aqicn_request_errors_never_carry_the_token(monkeypatch):
+    """requests puts the whole URL, token included, in its error messages, and
+    the caller logs the message. Actions masks secrets in its logs; a laptop
+    does not."""
+    import dataclasses
+
+    import requests
+
+    from aqi.sources import aqicn
+
+    monkeypatch.setattr(aqicn, "settings", dataclasses.replace(aqicn.settings, aqicn_token="SECRET-TOKEN-VALUE"))
+
+    def boom(url, **kw):
+        raise requests.ConnectionError(f"HTTPSConnectionPool: {url}?token={kw['params']['token']}")
+
+    monkeypatch.setattr(aqicn.requests, "get", boom)
+    with pytest.raises(RuntimeError) as err:
+        aqicn.fetch_current()
+    assert "SECRET-TOKEN-VALUE" not in str(err.value)
+    assert err.value.__cause__ is None and err.value.__suppress_context__  # `from None`: the URL never prints

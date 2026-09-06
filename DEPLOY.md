@@ -33,6 +33,24 @@ waiting an hour for the cron.
 
 ## 3. Dashboard
 
+**GitHub Pages is what is actually deployed, and it needs no account beyond GitHub.** The
+hourly workflow's `publish` job runs `python -m aqi.publish`, which renders the Flask pages
+and every JSON route to `site/` and deploys it with `actions/deploy-pages`. One-time setup,
+already done for this repo:
+
+```bash
+gh repo edit --visibility public            # Pages on a free plan needs a public repo
+gh api -X POST repos/<you>/<repo>/pages -f build_type=workflow
+```
+
+The site lives under `/<repo>/`, so the exporter prefixes every link with that base path
+(`--base-path`, default `/pearls-aqi`; pass `''` for a custom domain at the root). JSON
+files carry a `.json` suffix because Pages serves by extension, and the dashboard's client
+falls back to that shape. Live URL: https://zuraiz-anjum.github.io/pearls-aqi/
+
+The options below are for a *live* server — worth it if you want query parameters,
+sub-hourly freshness, or the OpenAPI docs.
+
 **Streamlit Community Cloud** is the path of least resistance:
 
 1. Push to GitHub, connect the repo at share.streamlit.io

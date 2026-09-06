@@ -20,6 +20,30 @@ and model registry, and Streamlit for the dashboard.
                                                      (site)    (JSON)   (dashboard)
 ```
 
+## Live
+
+**https://zuraiz-anjum.github.io/pearls-aqi/** — the forecast page and the model card,
+re-rendered every hour by the same GitHub Actions run that ingests the data, and served
+by GitHub Pages. No server; the hourly job renders what Flask would have said and
+publishes the files. The JSON routes are there too, as files:
+
+```
+https://zuraiz-anjum.github.io/pearls-aqi/api/predict.json
+https://zuraiz-anjum.github.io/pearls-aqi/api/history.json
+https://zuraiz-anjum.github.io/pearls-aqi/api/explain/1.json      (2, 3)
+https://zuraiz-anjum.github.io/pearls-aqi/api/metrics.json
+```
+
+The Streamlit dashboard reads those same files when pointed at them:
+
+```bash
+AQI_API_URL=https://zuraiz-anjum.github.io/pearls-aqi/api streamlit run app/dashboard.py
+```
+
+The page you see is at most an hour old, and says at the top when its data is from.
+
+---
+
 ---
 
 ## Quickstart
