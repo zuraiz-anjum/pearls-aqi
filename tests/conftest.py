@@ -5,7 +5,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_ROOT / "src"))
+# `app` is a top-level package next to `src`, not inside it. `python -m pytest`
+# puts the working directory on sys.path and hides that; bare `pytest` - which is
+# what CI runs - does not, and every web test fails to import. Make it explicit.
+sys.path.insert(0, str(_ROOT))
 
 
 @pytest.fixture

@@ -369,3 +369,28 @@ def test_conform_is_a_no_op_on_a_brand_new_group():
 
     df = pd.DataFrame({"ts": pd.to_datetime(["2026-09-01"]), "pm25": [1.0]})
     assert _conform(df, SimpleNamespace(features=[])).equals(df)
+
+
+def test_conform_casts_present_columns_to_the_schema_type():
+    """Archive weather arrives as integers; the pinned schema says double.
+
+    Hopsworks calls int-into-double a violation, not a widening, and rejects the
+    whole insert. Coerce to what the schema says before sending.
+    """
+    from types import SimpleNamespace
+
+    from aqi.store import _conform
+
+    fg = SimpleNamespace(
+        features=[
+            SimpleNamespace(name="humidity", type="double"),
+            SimpleNamespace(name="wind_dir", type="double"),
+            SimpleNamespace(name="count", type="bigint"),
+        ]
+    )
+    df = pd.DataFrame({"humidity": [55, 60], "wind_dir": [180, 90], "count": [1.0, 2.0]})
+    out = _conform(df, fg)
+
+    assert out["humidity"].dtype == "float64"
+    assert out["wind_dir"].dtype == "float64"
+    assert str(out["count"].dtype) == "Int64"

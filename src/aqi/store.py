@@ -175,6 +175,18 @@ def _conform(df: pd.DataFrame, fg) -> pd.DataFrame:
         log.warning("dropping %d column(s) not in the feature group schema: %s", len(extra), ", ".join(extra))
         out = out.drop(columns=extra)
 
+    # Types are pinned as tightly as names. The archive endpoint hands back
+    # integer humidity and wind direction; the forecast endpoint, which wrote
+    # first, gave floats - and the store calls int-into-double a schema violation
+    # rather than a widening. Cast present columns to whatever the schema says.
+    for name, kind in expected.items():
+        if name not in out.columns:
+            continue
+        if kind in ("double", "float"):
+            out[name] = pd.to_numeric(out[name], errors="coerce").astype("float64")
+        elif kind in ("int", "bigint"):
+            out[name] = pd.to_numeric(out[name], errors="coerce").astype("Int64")
+
     return out[list(expected)]
 
 
