@@ -35,11 +35,19 @@ def get_project():
 
     import hopsworks  # imported lazily so offline runs never need the SDK
 
-    _project = hopsworks.login(
-        api_key_value=settings.hopsworks_key,
-        project=settings.hopsworks_project or None,
-    )
-    log.info("connected to Hopsworks project %s", _project.name)
+    kwargs = {
+        "api_key_value": settings.hopsworks_key,
+        "project": settings.hopsworks_project or None,
+    }
+    # Managed clusters are regional (eu-west.cloud.hopsworks.ai). Without the
+    # host the SDK dials the serverless app.hopsworks.ai and the key is simply
+    # unknown there - the error says "invalid API key", which is misleading.
+    if settings.hopsworks_host:
+        kwargs["host"] = settings.hopsworks_host
+        kwargs["port"] = settings.hopsworks_port
+
+    _project = hopsworks.login(**kwargs)
+    log.info("connected to Hopsworks project %s at %s", _project.name, settings.hopsworks_host or "app.hopsworks.ai")
     return _project
 
 

@@ -28,6 +28,9 @@ jobs:
       AQICN_TOKEN: ${{ secrets.AQICN_TOKEN }}
       HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
       HOPSWORKS_PROJECT: ${{ secrets.HOPSWORKS_PROJECT }}
+      # Not a secret - it is the regional cluster host. Blank means serverless.
+      HOPSWORKS_HOST: eu-west.cloud.hopsworks.ai
+      HOPSWORKS_PORT: "443"
       ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
       CITY_NAME: lahore
       CITY_LAT: "31.5497"

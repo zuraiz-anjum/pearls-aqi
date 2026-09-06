@@ -21,3 +21,4 @@ reports/
 # local env, kept on Z: because C: is full
 .pip-cache/
 .tmp/
+*.egg-info/

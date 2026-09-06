@@ -173,9 +173,29 @@ RMSE — see `select_model` in the training pipeline. Selecting on RMSE alone sh
 171 MB Random Forest to beat Ridge by 0.02. The bundle is now 296 KB.
 
 **Skill degrades exactly as it should.** 44% better than persistence at day 1, half
-that by day 3. The autocorrelation analysis in the EDA notebook predicts this: at
-+72h the current reading still carries signal, but most of what is left is season and
-weather. R² of 0.42 at three days is a real forecast, not a great one.
+that by day 3. The EDA notebook predicts this before any model is fitted: the
+correlation between the current reading and the daily-mean target is 0.88 at +1 day,
+0.67 at +2, 0.56 at +3. At three days out the current reading still carries signal,
+but most of what is left is season and weather. R² of 0.42 there is a real forecast,
+not a great one.
+
+**Season is the bigger lever than the day.** The swing between the best and worst
+monthly medians is 95 AQI; the standard deviation of daily means is 39. That is why
+the cyclical day-of-year encodings and the smog-season flag are in the feature set, and
+why persistence — which knows nothing about season — is such a low bar in January.
+
+**Rain does what you would hope, and the effect survives controlling for season.**
+Across all hours, wet days (over 1 mm in 24 h) average AQI 131 against 154 dry. That
+could just be "it rains in the monsoon and the monsoon is cleaner", so the notebook
+repeats the comparison inside smog season only: 151 wet against 176 dry. Same
+direction, same size. That is what justifies carrying `hours_since_rain` and the
+forward precipitation features.
+
+**Bad air arrives in regimes, not spikes.** 118 of 1,497 days sit at Unhealthy or
+worse, in 37 distinct episodes with a median length of two days and a longest of
+twelve. That structure is exactly what a three-day model can capture, and it is why
+the alerting rule — which needs the *lower* bound of the interval to clear the
+threshold — is workable rather than a coin flip.
 
 **Category hit rate** — the share of predictions landing in the correct EPA health
 band — is arguably the number that matters for a dashboard someone acts on. 78% at
@@ -240,7 +260,9 @@ tests/                 leakage, serving, the chart renderer, both web apps
 | `ci.yml` | push / PR | ruff, pytest, import check on every pipeline module |
 
 Repository secrets needed: `AQICN_TOKEN`, `HOPSWORKS_API_KEY`, `HOPSWORKS_PROJECT`, and
-optionally `ALERT_WEBHOOK_URL`.
+optionally `ALERT_WEBHOOK_URL`. The cluster host (`HOPSWORKS_HOST`) is not a secret and is
+set as a plain env in the workflow files — change it there if your cluster is somewhere
+other than `eu-west.cloud.hopsworks.ai`, or blank it for serverless.
 
 GitHub's scheduler is best-effort and routinely fires 5–20 minutes late, occasionally
 skipping an hour under load. The hourly job re-fetches the last three days every run, so a
@@ -321,9 +343,11 @@ Listed because they are real, not to be modest about it.
 - **The prediction interval is empirical, not calibrated.** It assumes residual spread is
   roughly stationary, and it is not — errors are materially wider in smog season than in
   April. It is honest about being a rough band rather than a guarantee.
-- **Random Forest artifacts are large** (~150 MB each at the current settings). Fine for the
-  parquet fallback, less fine for a free-tier registry. If that bites, raise
-  `min_samples_leaf` — it costs very little accuracy on this data.
+- **Model selection prefers the cheap artifact on purpose.** When several models sit
+  within fold-noise of each other, `select_model` takes the smallest, which on this data
+  has meant Ridge every time. If a future retrain shows a tree model *clearly* ahead — a
+  gap larger than a quarter of the fold-to-fold standard deviation — it will be selected;
+  until then a 296 KB bundle beats a 300 MB one that scores the same.
 - **One station, one city.** The schema is keyed on `city` and the config is
   environment-driven, so a second city is a config change rather than a rewrite, but nothing
   here has been tested against one.

@@ -55,6 +55,11 @@ class Settings:
 
     hopsworks_key: str = os.getenv("HOPSWORKS_API_KEY", "")
     hopsworks_project: str = os.getenv("HOPSWORKS_PROJECT", "")
+    # Managed clusters live on a regional host (eu-west.cloud.hopsworks.ai);
+    # the SDK's default is the serverless app.hopsworks.ai. Leave blank to take
+    # the default, set it when the Quick Start page shows a different host.
+    hopsworks_host: str = os.getenv("HOPSWORKS_HOST", "").strip()
+    hopsworks_port: int = int(os.getenv("HOPSWORKS_PORT", "443") or 443)
 
     feature_group: str = "aqi_hourly"
     feature_group_version: int = 1

@@ -10,6 +10,7 @@ Hopsworks' storage quota, which four years of hourly rows sits comfortably insid
 | `AQICN_TOKEN` | https://aqicn.org/data-platform/token/ — arrives by email in a minute |
 | `HOPSWORKS_API_KEY` | app.hopsworks.ai → Account Settings → API keys. Needs **featurestore**, **project** and **job** scopes |
 | `HOPSWORKS_PROJECT` | The project name you created, not its numeric id |
+| `HOPSWORKS_HOST` | Only for managed clusters. The Quick Start page shows it, e.g. `eu-west.cloud.hopsworks.ai`. Blank means serverless `app.hopsworks.ai`. Not a secret |
 | `ALERT_WEBHOOK_URL` | Optional. A Slack incoming webhook works with the default payload |
 
 Locally these go in `.env`. In GitHub they go in Settings → Secrets and variables →
@@ -42,6 +43,7 @@ waiting an hour for the cron.
 AQICN_TOKEN = "..."
 HOPSWORKS_API_KEY = "..."
 HOPSWORKS_PROJECT = "..."
+HOPSWORKS_HOST = "eu-west.cloud.hopsworks.ai"   # omit for serverless
 CITY_NAME = "lahore"
 CITY_LAT = "31.5497"
 CITY_LON = "74.3436"
@@ -72,9 +74,13 @@ and it will route through that instead of importing the model in-process.
 
 ## 4. Things that will actually go wrong
 
-**Hopsworks SDK install fails on Windows.** It pulls a native dependency that sometimes
-has no wheel for the newest Python. Use 3.11 rather than 3.13, or develop with
-`AQI_OFFLINE=1` and let CI be the thing that talks to Hopsworks.
+**Hopsworks SDK install fails on Windows with "Microsoft Visual C++ 14.0 or greater is
+required".** The culprit is `twofish`, a C extension the SDK depends on, which ships no
+prebuilt wheel for Python 3.13 on Windows and so tries to compile. There is a wheel for
+3.12. Make the venv with `py -3.12 -m venv .venv` and the install is clean. The
+alternative — installing the MSVC build tools — works too, but it is several GB on the
+system drive for one 20 KB module. Or develop with `AQI_OFFLINE=1` and let CI (which
+runs 3.11 on Linux, where this never comes up) be the thing that talks to Hopsworks.
 
 **Feature group schema conflict.** Hopsworks pins the schema at version 1 on first
 insert. If you add or rename a feature later, the insert fails with a schema mismatch.
