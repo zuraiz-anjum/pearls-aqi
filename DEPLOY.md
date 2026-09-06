@@ -138,6 +138,12 @@ hourly, under *negative* uids that only `map/bounds/?networks=all` exposes. The 
 `@-576556` Punjab University, `@-576565` DHA Phase 6, `@-576559` GT Road, `@-576550`
 Safari Park.
 
+**The row you just wrote is not in `read_features()` yet.** Writes go to Kafka and the
+*online* store immediately; the *offline* table — which `read_features()`, training and
+calibration read — only updates when a materialization execution commits, a few minutes
+later and one execution behind. `fg.select_all().read(online=True)` shows the latest values
+if you need to prove a write landed.
+
 **"No hudi properties found" right after an insert.** Not an error. The first insert
 launches an asynchronous materialization job, and until it finishes there is no table to
 read. `read_features()` treats that as empty; the next hourly run reads fine.
