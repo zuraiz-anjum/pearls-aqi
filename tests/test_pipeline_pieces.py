@@ -324,3 +324,48 @@ def test_sanitize_turns_missing_text_into_none_not_nan():
     assert np.isnan(out.loc[1, "pm25"])  # numeric NaN is fine for Avro doubles
     assert out["flag"].dtype == "int8"
     assert out["city"].iloc[0] == "lahore"  # filled in when absent
+
+
+def test_conform_fills_missing_schema_columns_and_drops_strays():
+    """The backfill and the hourly pipeline produce different column sets.
+
+    Hopsworks pins the schema on whichever inserts first and rejects the other.
+    _conform makes the frame match: nulls of the right kind for what is missing,
+    strays dropped, columns in schema order.
+    """
+    from types import SimpleNamespace
+
+    from aqi.store import _conform
+
+    fg = SimpleNamespace(
+        features=[
+            SimpleNamespace(name="ts", type="timestamp"),
+            SimpleNamespace(name="city", type="string"),
+            SimpleNamespace(name="pm25", type="double"),
+            SimpleNamespace(name="aqi_station", type="double"),
+            SimpleNamespace(name="station", type="string"),
+        ]
+    )
+    df = pd.DataFrame(
+        {
+            "ts": pd.to_datetime(["2026-09-01 00:00"]),
+            "city": ["lahore"],
+            "pm25": [40.0],
+            "not_in_schema": [1],
+        }
+    )
+    out = _conform(df, fg)
+
+    assert list(out.columns) == ["ts", "city", "pm25", "aqi_station", "station"]
+    assert np.isnan(out.loc[0, "aqi_station"]) and out["aqi_station"].dtype == "float64"
+    assert out.loc[0, "station"] is None
+    assert "not_in_schema" not in out.columns
+
+
+def test_conform_is_a_no_op_on_a_brand_new_group():
+    from types import SimpleNamespace
+
+    from aqi.store import _conform
+
+    df = pd.DataFrame({"ts": pd.to_datetime(["2026-09-01"]), "pm25": [1.0]})
+    assert _conform(df, SimpleNamespace(features=[])).equals(df)

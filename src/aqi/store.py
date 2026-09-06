@@ -15,6 +15,7 @@ import logging
 import shutil
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from .config import MODEL_DIR, PROCESSED_DIR, settings
@@ -127,9 +128,54 @@ def write_features(df: pd.DataFrame) -> int:
         return len(clean)
 
     fg = get_feature_group()
+    clean = _conform(clean, fg)
     fg.insert(clean, write_options={"wait_for_job": False})
     log.info("inserted %d rows into %s v%d", len(clean), settings.feature_group, settings.feature_group_version)
     return len(clean)
+
+
+# Hopsworks/Hive type name -> the null this column should carry when absent.
+_NULL_FOR_TYPE = {
+    "string": None,
+    "timestamp": pd.NaT,
+    "date": pd.NaT,
+    "boolean": None,
+}
+
+
+def _conform(df: pd.DataFrame, fg) -> pd.DataFrame:
+    """Shape a frame to the feature group's pinned schema.
+
+    Hopsworks fixes the column set on the first insert and rejects anything that
+    deviates afterwards. Two different writers feed this group - the hourly
+    pipeline carries the station columns, the backfill does not - so whichever
+    ran first dictated the schema and the other one failed on the spot. Missing
+    columns become nulls of the right kind; strays are dropped with a warning
+    rather than sent to certain rejection.
+
+    A brand new group has no features yet; then there is nothing to conform to.
+    """
+    schema = getattr(fg, "features", None) or []
+    if not schema:
+        return df
+
+    expected = {f.name: (f.type or "").lower() for f in schema}
+    out = df.copy()
+
+    missing = [name for name in expected if name not in out.columns]
+    for name in missing:
+        out[name] = _NULL_FOR_TYPE.get(expected[name], np.nan)
+        if expected[name] in ("double", "float", "int", "bigint"):
+            out[name] = out[name].astype("float64")
+    if missing:
+        log.info("schema has %d column(s) this writer does not produce, sent as null: %s", len(missing), ", ".join(missing))
+
+    extra = [c for c in out.columns if c not in expected]
+    if extra:
+        log.warning("dropping %d column(s) not in the feature group schema: %s", len(extra), ", ".join(extra))
+        out = out.drop(columns=extra)
+
+    return out[list(expected)]
 
 
 def _write_offline(clean: pd.DataFrame) -> None:
