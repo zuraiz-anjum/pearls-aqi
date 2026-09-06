@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "twofish"
+version = "0.3.0"
+description = "Stub. Satisfies pyjks's dependency on Windows where the real C extension has no wheel; raises if anything actually calls it."
+
+[tool.setuptools]
+py-modules = ["twofish"]

@@ -32,3 +32,8 @@ lint:
 
 clean:
 	rm -rf models/bundle reports/*.csv data/processed/*.parquet
+
+# Windows: the Hopsworks SDK needs the twofish stub first (see tools/twofish-stub).
+install-windows:
+	pip install ./tools/twofish-stub
+	pip install -e ".[store,explain,app,dev]"

@@ -75,12 +75,19 @@ and it will route through that instead of importing the model in-process.
 ## 4. Things that will actually go wrong
 
 **Hopsworks SDK install fails on Windows with "Microsoft Visual C++ 14.0 or greater is
-required".** The culprit is `twofish`, a C extension the SDK depends on, which ships no
-prebuilt wheel for Python 3.13 on Windows and so tries to compile. There is a wheel for
-3.12. Make the venv with `py -3.12 -m venv .venv` and the install is clean. The
-alternative — installing the MSVC build tools — works too, but it is several GB on the
-system drive for one 20 KB module. Or develop with `AQI_OFFLINE=1` and let CI (which
-runs 3.11 on Linux, where this never comes up) be the thing that talks to Hopsworks.
+required".** The culprit is `twofish`, a C extension two levels down the SDK's dependency
+tree (`hopsworks → pyjks → twofish`) that ships no Windows wheel for *any* Python version.
+pyjks only uses it to decrypt Java keystores for in-cluster connections; an API-key
+connection over HTTPS never touches it. So:
+
+```bash
+pip install ./tools/twofish-stub          # satisfies the dependency, raises if ever called
+pip install "hopsworks[python]"
+```
+
+`tools/twofish-stub/README.md` has the reasoning. Installing the MSVC build tools works
+too, but it is several GB on the system drive for one 20 KB module. Linux and macOS are
+unaffected — CI runs on Ubuntu and installs the real thing.
 
 **Feature group schema conflict.** Hopsworks pins the schema at version 1 on first
 insert. If you add or rename a feature later, the insert fails with a schema mismatch.
