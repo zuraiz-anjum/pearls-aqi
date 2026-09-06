@@ -290,3 +290,37 @@ def test_register_existing_refuses_without_a_bundle(tmp_path):
 
     with pytest.raises(FileNotFoundError, match="no bundle"):
         tp.register_existing(tmp_path / "nowhere")
+
+
+# --------------------------------------------------------------------------- #
+# feature store sanitising
+# --------------------------------------------------------------------------- #
+
+
+def test_sanitize_turns_missing_text_into_none_not_nan():
+    """Caught on the first real Hopsworks write.
+
+    A merge leaves missing text as float NaN. The Avro schema for a string column
+    is ['null', 'string'], and fastavro raises on NaN mid-upload - after the group
+    has been created, before a single row has landed.
+    """
+    from aqi.store import _sanitize
+
+    df = pd.DataFrame(
+        {
+            "ts": pd.to_datetime(["2026-09-01 00:00", "2026-09-01 01:00"]),
+            "source": ["openmeteo", np.nan],
+            "dominant_pollutant": [np.nan, "pm25"],
+            "station": [np.nan, np.nan],
+            "pm25": [40.0, np.nan],
+            "flag": [True, False],
+        }
+    )
+    out = _sanitize(df)
+
+    assert out.loc[1, "source"] is None
+    assert out.loc[0, "dominant_pollutant"] is None
+    assert out["station"].tolist() == [None, None]
+    assert np.isnan(out.loc[1, "pm25"])  # numeric NaN is fine for Avro doubles
+    assert out["flag"].dtype == "int8"
+    assert out["city"].iloc[0] == "lahore"  # filled in when absent

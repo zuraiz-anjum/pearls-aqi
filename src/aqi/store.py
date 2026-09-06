@@ -68,9 +68,19 @@ def _sanitize(df: pd.DataFrame) -> pd.DataFrame:
 
     for col in out.select_dtypes(include="bool").columns:
         out[col] = out[col].astype("int8")
+
+    text_columns = ("city", "station", "source", "dominant_pollutant", "aqi_source")
     for col in out.select_dtypes(include="object").columns:
-        if col not in ("city", "station", "source", "dominant_pollutant"):
+        if col not in text_columns:
             out[col] = pd.to_numeric(out[col], errors="coerce")
+
+    # A merge leaves missing text as float NaN. The Avro schema for a string
+    # column is ['null', 'string'] and fastavro will not coerce NaN into that
+    # null - it raises mid-upload, after the feature group has been created and
+    # before a single row lands. Make the missing value an actual None.
+    for col in text_columns:
+        if col in out.columns:
+            out[col] = out[col].astype(object).where(out[col].notna(), None)
 
     return out
 
@@ -92,6 +102,10 @@ def get_feature_group(create: bool = True):
         primary_key=["city", "ts"],
         event_time="ts",
         online_enabled=True,
+        # Newer clusters default new groups to Delta, which the Python client can
+        # only write with an extra library installed. HUDI needs nothing client
+        # side and is what every environment here - local, CI - can actually use.
+        time_travel_format="HUDI",
     )
 
 
@@ -143,7 +157,19 @@ def read_features(city: str | None = None) -> pd.DataFrame:
             return pd.DataFrame()
         df = pd.read_parquet(OFFLINE_FEATURES)
     else:
-        df = get_feature_group(create=False).read()
+        try:
+            df = get_feature_group(create=False).read()
+        except Exception as exc:
+            # The first insert into a new group kicks off an asynchronous
+            # materialization job, and until it finishes there is no table to
+            # read - the SDK reports "No hudi properties found". Same story if
+            # the group does not exist at all yet. Either way the honest answer
+            # is "nothing here yet", not a crashed hourly run.
+            message = str(exc).lower()
+            if "hudi properties" in message or "does not exist" in message or "not found" in message:
+                log.warning("feature group not readable yet (%s) - treating as empty", str(exc)[:120])
+                return pd.DataFrame()
+            raise
 
     if df.empty:
         return df
