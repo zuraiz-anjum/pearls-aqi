@@ -146,42 +146,55 @@ feature, which is how a forward-reaching rolling window gets caught.
 
 ## Results
 
-35,833 hourly rows, Aug 2022 – Sep 2026, 100% hourly coverage. Pooled out-of-fold
-across 5 expanding-window folds with the embargo described above. Full table in
-`reports/leaderboard.csv`; the dashboard renders it under Model performance.
+35,977 hourly rows, Aug 2022 – Sep 2026, 100% hourly coverage. Pooled out-of-fold
+across 5 expanding-window folds with the embargo described above (3 folds for the GRU,
+which costs minutes per fit rather than milliseconds). Full table in
+`reports/leaderboard.csv`; both the Flask model card and the dashboard render it.
 
 | Horizon | Model | RMSE | MAE | R² | Category hit | Skill vs persistence |
 |---|---|---|---|---|---|---|
-| +1 day | ridge | **13.04** | 8.96 | 0.859 | 78.4% | **+43.6%** |
-| +2 days | ridge | **24.52** | 16.56 | 0.501 | 62.4% | **+19.8%** |
-| +3 days | ridge | **26.36** | 18.48 | 0.424 | 58.6% | **+19.6%** |
+| +1 day | ridge | **13.08** | 8.99 | 0.841 | 78.3% | **+42.3%** |
+| +2 days | ridge | **24.40** | 16.47 | 0.448 | 62.3% | **+17.6%** |
+| +3 days | ridge | **26.15** | 18.23 | 0.366 | 58.6% | **+15.8%** |
 
-Persistence, for reference: RMSE 23.12 / 30.59 / 32.78, R² 0.557 / 0.224 / 0.109.
+Persistence, for reference: RMSE 22.65 / 29.62 / 31.03, R² 0.524 / 0.186 / 0.106.
 
 RMSE for everything tried:
 
 | Model | +1d | +2d | +3d |
 |---|---|---|---|
-| ridge | 13.04 | 24.52 | 26.36 |
-| random_forest | 13.10 | 24.14 | 26.35 |
-| hist_gbm | 13.54 | 24.60 | 27.53 |
-| persistence | 23.12 | 30.59 | 32.78 |
+| random_forest | 12.95 | 23.76 | 25.89 |
+| hist_gbm | 13.06 | 23.82 | 26.02 |
+| ridge | 13.08 | 24.40 | 26.15 |
+| gru (TensorFlow) | 14.44 | 25.75 | 29.08 |
+| persistence | 22.65 | 29.62 | 31.03 |
 
 ### Reading these honestly
 
-**Ridge wins all three horizons**, and the interesting part is *by how little* it
-wins — the three real models sit within 0.4 RMSE of each other at every horizon,
-while the fold-to-fold standard deviation is 3.9–7.7. They are one statistical tie.
+**Ridge is selected at all three horizons**, and the interesting part is *how close*
+the field is — the three tabular models sit within 0.65 RMSE of each other at every
+horizon, while the fold-to-fold standard deviation is 3.9–8.1. They are one statistical
+tie. Random Forest has the lowest pooled number at every horizon; `select_model` took
+Ridge because the gap is well inside the noise and the artifact is 10,000× smaller.
 
 That is a finding about the features, not the models. When a linear model on 62
 engineered columns matches a 250-tree forest, the lags, rolling windows and cyclical
 encodings are doing the work and there is not much nonlinearity left for the trees to
-find. It also means the sensible tie-break is cost, not the third decimal place of
-RMSE — see `select_model` in the training pipeline. Selecting on RMSE alone shipped a
-171 MB Random Forest to beat Ridge by 0.02. The bundle is now 296 KB.
+find. Selecting on RMSE alone would have shipped a 150 MB forest to win by 0.13. The
+bundle is 296 KB.
 
-**Skill degrades exactly as it should.** 44% better than persistence at day 1, half
-that by day 3. The EDA notebook predicts this before any model is fitted: the
+**The GRU lost, and that is worth saying plainly.** A two-layer GRU over a 72-hour
+window with the calendar and forward-weather features as static inputs beats
+persistence comfortably at every horizon — so it is learning — but trails every tabular
+model: 14.4 / 25.7 / 29.1 against Ridge's 13.1 / 24.4 / 26.1, and by day 3 its R² is
+0.06. With ~36k hourly windows there is not enough signal for a sequence model to
+rediscover what the hand-built lags already encode, and a bigger network would only
+memorise the 2023 smog season. It stays in the zoo, gated behind `--deep`, evaluated
+weekly in CI, because the day the dataset is large enough for it to win is the day this
+paragraph should change.
+
+**Skill degrades exactly as it should.** 42% better than persistence at day 1, 16% by
+day 3. The EDA notebook predicts this before any model is fitted: the
 correlation between the current reading and the daily-mean target is 0.88 at +1 day,
 0.67 at +2, 0.56 at +3. At three days out the current reading still carries signal,
 but most of what is left is season and weather. R² of 0.42 there is a real forecast,
@@ -216,15 +229,17 @@ above.
 
 | Horizon | With forecast weather | Without | Difference |
 |---|---|---|---|
-| +1 day | 15.49 | 15.02 | **−0.47** (slightly worse) |
-| +2 days | 25.60 | 27.42 | +1.82 |
-| +3 days | 27.73 | 31.75 | **+4.02** |
+| +1 day | 14.60 | 14.28 | **−0.32** (slightly worse) |
+| +2 days | 25.14 | 27.21 | +2.07 |
+| +3 days | 25.79 | 31.73 | **+5.94** |
 
 This is the result I found most satisfying, because it says something physical. At one
 day out the recent trajectory already contains everything useful and the weather
 columns are net noise. By three days out that signal has decayed and the weather
-forecast is carrying 4 RMSE points — about a third of the model's entire advantage
-over persistence at that horizon.
+forecast is carrying 6 RMSE points — and look at the "without" column: 31.73 is *worse
+than persistence* (31.03). Strip the weather forecast out and a gradient booster on
+three days of lags does no better at day 3 than carrying yesterday forward. The entire
+day-3 skill is the weather.
 
 It also bounds the optimism: day 3 is where training-on-reanalysis flatters us most,
 because day 3 is where the forward weather actually matters.
