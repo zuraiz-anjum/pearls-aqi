@@ -394,3 +394,76 @@ def test_conform_casts_present_columns_to_the_schema_type():
     assert out["humidity"].dtype == "float64"
     assert out["wind_dir"].dtype == "float64"
     assert str(out["count"].dtype) == "Int64"
+
+
+# --------------------------------------------------------------------------- #
+# station columns survive upserts
+# --------------------------------------------------------------------------- #
+
+
+def test_station_values_survive_a_later_write_without_them(tmp_path, monkeypatch):
+    """Found in production: calibration overlap could never exceed one hour.
+
+    The hourly run upserts a 72-row window in which only the current hour has a
+    station reading; both stores replace whole rows on upsert, so every run erased
+    the previous hours' readings. The writer must carry stored station values into
+    rows that arrive without them - and still let a genuinely new reading win.
+    """
+    from aqi import store
+
+    monkeypatch.setattr(store, "OFFLINE_FEATURES", tmp_path / "features.parquet")
+    ts = pd.to_datetime(["2026-09-01 00:00", "2026-09-01 01:00", "2026-09-01 02:00"])
+
+    # Run 1: hour 1 has a station reading.
+    first = pd.DataFrame(
+        {"ts": ts, "city": "lahore", "aqi_cams": [100.0, 110.0, 120.0],
+         "station": [None, "Lahore US Consulate", None],
+         "aqi_station": [np.nan, 150.0, np.nan]}
+    )
+    store.write_features(first)
+
+    # Run 2: same window re-fetched, no station column at all (a backfill).
+    second = pd.DataFrame({"ts": ts, "city": "lahore", "aqi_cams": [101.0, 111.0, 121.0]})
+    store.write_features(second)
+
+    got = store.read_features().set_index("ts")
+    assert got.loc[pd.Timestamp("2026-09-01 01:00"), "aqi_station"] == 150.0
+    assert got.loc[pd.Timestamp("2026-09-01 01:00"), "station"] == "Lahore US Consulate"
+    assert got.loc[pd.Timestamp("2026-09-01 01:00"), "aqi_cams"] == 111.0  # CAMS refreshed
+    assert np.isnan(got.loc[pd.Timestamp("2026-09-01 00:00"), "aqi_station"])
+
+    # Run 3: a newer reading for hour 1 must replace the stored one.
+    third = pd.DataFrame(
+        {"ts": ts[1:2], "city": "lahore", "aqi_cams": [112.0], "station": ["Lahore US Consulate"], "aqi_station": [160.0]}
+    )
+    store.write_features(third)
+    assert store.read_features().set_index("ts").loc[pd.Timestamp("2026-09-01 01:00"), "aqi_station"] == 160.0
+
+
+# --------------------------------------------------------------------------- #
+# stale station readings
+# --------------------------------------------------------------------------- #
+
+
+def _station_row(ts):
+    return {"ts": ts, "city": "lahore", "station": "Egerton Road", "aqi": 91.0, "dominant_pollutant": "pm25", "pm25_iaqi": 91.0}
+
+
+def test_stale_station_reading_is_treated_as_absent(monkeypatch):
+    """AQICN's official Lahore monitor died in Feb 2025 but kept serving its last
+    reading. For a while the pipeline wrote that row every hour as if it were new."""
+    from aqi.pipelines import feature_pipeline as fp
+
+    monkeypatch.setattr(fp.aqicn, "fetch_current", lambda: _station_row(pd.Timestamp("2025-02-18 13:00")))
+    assert fp.collect_station().empty
+
+
+def test_fresh_station_reading_is_kept(monkeypatch):
+    from aqi.pipelines import feature_pipeline as fp
+
+    now = pd.Timestamp.utcnow().tz_localize(None).floor("h")
+    monkeypatch.setattr(fp.aqicn, "fetch_current", lambda: _station_row(now - pd.Timedelta(hours=2)))
+    out = fp.collect_station()
+    assert len(out) == 1
+    assert out.loc[0, "aqi_station"] == 91.0
+    assert out.loc[0, "station"] == "Egerton Road"

@@ -51,7 +51,11 @@ class Settings:
     timezone: str = os.getenv("CITY_TZ", "Asia/Karachi")
 
     aqicn_token: str = os.getenv("AQICN_TOKEN", "")
-    aqicn_station: str = os.getenv("AQICN_STATION", "lahore")
+    # AQICN's keyword search and geo feed only know *official* stations, and the
+    # one official Lahore monitor (US Embassy, uid 11765) went silent in Feb 2025.
+    # The Punjab EPA network is there too, hourly, under negative uids that only
+    # the map/bounds endpoint exposes. @-576577 is Egerton Road, central Lahore.
+    aqicn_station: str = os.getenv("AQICN_STATION", "@-576577")
 
     hopsworks_key: str = os.getenv("HOPSWORKS_API_KEY", "")
     hopsworks_project: str = os.getenv("HOPSWORKS_PROJECT", "")

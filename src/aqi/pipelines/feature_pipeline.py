@@ -31,6 +31,8 @@ from ..store import read_features, write_features
 log = logging.getLogger(__name__)
 
 OVERLAP_DAYS = 3
+STATION_MAX_AGE_HOURS = 6  # older than this and the feed is dead, not late
+
 
 # Extra history fetched purely to warm up the 24-hour EPA averaging windows, then
 # discarded. Without it the oldest hours in each run get a partial average and we
@@ -69,6 +71,15 @@ def collect_station() -> pd.DataFrame:
         row = aqicn.fetch_current()
     except Exception as exc:
         log.warning("AQICN unavailable (%s) - continuing with Open-Meteo only", exc)
+        return pd.DataFrame()
+
+    age_h = (pd.Timestamp.utcnow().tz_localize(None) - pd.Timestamp(row["ts"])).total_seconds() / 3600
+    if age_h > STATION_MAX_AGE_HOURS:
+        # A dead feed keeps serving its last reading forever. AQICN's official
+        # Lahore monitor stopped in Feb 2025 and, for a while, this pipeline
+        # faithfully wrote that eighteen-month-old row every hour as if it were
+        # news. Stale is the same as absent.
+        log.warning("station reading is %.0f h old (%s) - treating the station as absent", age_h, row["ts"])
         return pd.DataFrame()
 
     df = pd.DataFrame([row]).rename(columns={"aqi": "aqi_station"})

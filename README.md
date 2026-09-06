@@ -357,10 +357,14 @@ last 24h (188), forecast wind (4 km/h), smog season" — so the alert says why, 
 
 Listed because they are real, not to be modest about it.
 
-- **The station calibration has no overlap yet.** It needs the hourly pipeline to run for a
-  couple of days before the CAMS→station map is fitted from more than a handful of points.
-  Until then labels are pure CAMS, which is a grid cell average and will read lower than a
-  roadside station during rush hour.
+- **The station calibration is identity and will stay so for a couple of days.** It needs
+  overlapping hours of CAMS and station readings, and until 6 Sep 2026 there were none —
+  not for lack of code, but because the only AQICN station the keyword search returns for
+  Lahore (the US Embassy monitor) went silent in February 2025 and kept serving that last
+  reading. The pipeline now reads the Punjab EPA's Egerton Road monitor (`@-576577`, one of
+  a dozen live stations AQICN only exposes under negative uids), treats anything older than
+  six hours as absent, and preserves station values across upserts. Overlap accumulates
+  from here at one hour per hourly run; the fit turns on at 48.
 - **Offline metrics are an upper bound**, for the forward-weather reason above. The
   ablation column tells you by how much.
 - **The prediction interval is empirical, not calibrated.** It assumes residual spread is

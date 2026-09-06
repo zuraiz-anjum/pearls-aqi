@@ -36,7 +36,7 @@ jobs:
       CITY_NAME: lahore
       CITY_LAT: "31.5497"
       CITY_LON: "74.3436"
-      AQICN_STATION: lahore
+      AQICN_STATION: "@-576577"
 
     steps:
       - uses: actions/checkout@v4
