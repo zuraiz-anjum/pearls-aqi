@@ -1,4 +1,5 @@
 name: feature-pipeline
+# Registered with GitHub on first modification after the initial push - see DEPLOY.md.
 
 # Hourly ingest. GitHub's scheduler is best-effort and routinely runs 5-20 minutes
 # late, occasionally skipping an hour entirely under load. That is fine here: each

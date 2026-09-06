@@ -1,4 +1,5 @@
 name: training-pipeline
+# Registered with GitHub on first modification after the initial push - see DEPLOY.md.
 
 # Daily retrain at 02:30 UTC (07:30 Karachi) - after the overnight hours have
 # landed, before anyone looks at the dashboard in the morning.
