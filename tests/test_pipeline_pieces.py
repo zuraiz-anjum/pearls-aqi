@@ -467,3 +467,22 @@ def test_fresh_station_reading_is_kept(monkeypatch):
     assert len(out) == 1
     assert out.loc[0, "aqi_station"] == 91.0
     assert out.loc[0, "station"] == "Egerton Road"
+
+
+def test_read_features_always_returns_naive_utc_timestamps(tmp_path, monkeypatch):
+    """The Hopsworks query service returns tz-aware ts; parquet returns naive.
+
+    Everything downstream assumes naive UTC - the alerts step on the first CI run
+    died subtracting a naive "today" from an aware max(). The reader owns the
+    contract, whichever backend answered.
+    """
+    from aqi import store
+
+    path = tmp_path / "features.parquet"
+    monkeypatch.setattr(store, "OFFLINE_FEATURES", path)
+    aware = pd.DataFrame({"ts": pd.to_datetime(["2026-09-06 13:00", "2026-09-06 14:00"], utc=True), "city": "lahore", "aqi_cams": [1.0, 2.0]})
+    aware.to_parquet(path, index=False)
+
+    got = store.read_features()
+    assert got["ts"].dt.tz is None
+    assert got["ts"].iloc[-1] == pd.Timestamp("2026-09-06 14:00")

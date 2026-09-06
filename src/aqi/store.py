@@ -296,6 +296,11 @@ def read_features(city: str | None = None) -> pd.DataFrame:
 
     if df.empty:
         return df
+    # One contract for `ts` no matter which backend answered: tz-naive UTC.
+    # Parquet gives that already; the Hopsworks query service hands back
+    # tz-aware timestamps, and the first thing downstream to subtract a naive
+    # "today" from them was the alerts step on the very first CI run.
+    df["ts"] = pd.to_datetime(df["ts"], utc=True).dt.tz_localize(None)
     if "city" in df.columns:
         df = df[df["city"] == city]
     return df.sort_values("ts").reset_index(drop=True)
