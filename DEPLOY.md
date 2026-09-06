@@ -49,8 +49,17 @@ CITY_LAT = "31.5497"
 CITY_LON = "74.3436"
 ```
 
-The dashboard pulls the model from the registry on first load, so it picks up each
-nightly retrain without a redeploy.
+And add one more line pointing at wherever the Flask site (or FastAPI) is deployed:
+
+```toml
+AQI_API_URL = "https://your-flask-host/api"
+```
+
+That line is not optional on Streamlit Cloud. It installs from `requirements.txt`, which is
+deliberately the dashboard set with no Hopsworks SDK in it — Streamlit requires
+`protobuf>=5`, the SDK requires `<5`, and they cannot be installed together. The
+dashboard reads through the API instead, so it picks up each nightly retrain without a
+redeploy and never needs the store credentials at all.
 
 **The Flask site** is the thing to put in front of people who are not analysts. It is
 plain WSGI, so any Python host works — Render, Railway, Fly, a $5 VPS with gunicorn:

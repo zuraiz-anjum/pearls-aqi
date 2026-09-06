@@ -34,6 +34,38 @@ st.set_page_config(
 )
 
 
+def _store_reachable_in_process() -> bool:
+    """Can this environment read the feature store directly?
+
+    Streamlit and the Hopsworks SDK disagree on protobuf and cannot share an
+    environment, so the dashboard normally reads through the API. If someone runs
+    it in-process with Hopsworks credentials set, the failure without this check
+    is a stack trace ending in "No module named 'hopsworks'" - true, but not the
+    fix. The fix is one of two environment variables.
+    """
+    if API_URL or not settings.has_hopsworks:
+        return True
+    try:
+        import hopsworks  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+if not _store_reachable_in_process():
+    st.error(
+        "Hopsworks credentials are set but the SDK is not installed in this "
+        "environment - it cannot be, alongside Streamlit."
+    )
+    st.markdown(
+        "Either point the dashboard at the API:\n\n"
+        "```\nAQI_API_URL=http://127.0.0.1:5000/api streamlit run app/dashboard.py\n```\n\n"
+        "or run against the local parquet store:\n\n"
+        "```\nAQI_OFFLINE=1 streamlit run app/dashboard.py\n```"
+    )
+    st.stop()
+
+
 # --------------------------------------------------------------------------- #
 # data access
 # --------------------------------------------------------------------------- #

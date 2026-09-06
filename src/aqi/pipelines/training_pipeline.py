@@ -325,12 +325,49 @@ def run(folds: int = 5, deep: bool = False, ablation: bool = True, register: boo
     return manifest
 
 
+def register_existing(bundle_dir: Path = BUNDLE_DIR) -> str:
+    """Push an already-trained bundle to the registry without retraining.
+
+    Exists because training and registering do not always happen in the same
+    environment. Locally the deep run lives in a TensorFlow venv that cannot hold
+    the Hopsworks SDK (they disagree on protobuf), so the bundle is produced in one
+    and registered from the other. CI uses it to re-register after a failed push.
+    """
+    manifest_path = bundle_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"no bundle to register at {bundle_dir}")
+
+    manifest = json.loads(manifest_path.read_text())
+    headline = {}
+    for h in manifest["horizons"]:
+        m = manifest["models"][f"d{h}"]["metrics"]
+        headline[f"rmse_d{h}"] = m["rmse"]
+        headline[f"r2_d{h}"] = m["r2"]
+
+    ensure_feature_view()
+    version = save_model(
+        bundle_dir,
+        metrics=headline,
+        description=f"3-day AQI forecaster for {settings.city}, one model per horizon "
+        f"(trained {manifest.get('trained_at', '?')})",
+    )
+    manifest["registry_version"] = version
+    manifest_path.write_text(json.dumps(manifest, indent=2, default=str))
+    log.info("registered existing bundle as version %s", version)
+    return version
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train and register the AQI forecasters")
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--deep", action="store_true", help="also evaluate the TensorFlow GRU")
     parser.add_argument("--no-ablation", action="store_true")
     parser.add_argument("--no-register", action="store_true", help="train but do not touch the registry")
+    parser.add_argument(
+        "--register-only",
+        action="store_true",
+        help="skip training; push the bundle already in models/bundle to the registry",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -339,6 +376,11 @@ def main() -> None:
         format="%(asctime)s %(levelname)-7s %(message)s",
         datefmt="%H:%M:%S",
     )
+
+    if args.register_only:
+        register_existing()
+        return
+
     run(
         folds=args.folds,
         deep=args.deep,

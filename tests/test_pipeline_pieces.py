@@ -241,3 +241,52 @@ def test_selection_handles_an_empty_board():
     chosen, why = select_model(pd.DataFrame(columns=["model", "rmse", "rmse_std"]))
     assert chosen == "persistence"
     assert "reason" in why
+
+
+# --------------------------------------------------------------------------- #
+# registering an existing bundle
+# --------------------------------------------------------------------------- #
+
+
+def test_register_existing_pushes_the_bundle_without_retraining(tmp_path, monkeypatch):
+    """Training and registering can happen in different environments (protobuf).
+
+    Offline path: the registry is a JSON file, so we can see exactly what got
+    recorded - the headline metrics must come from the manifest, not be recomputed.
+    """
+    import json
+
+    from aqi import store
+    from aqi.pipelines import training_pipeline as tp
+
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "d1_ridge.joblib").write_bytes(b"not really a model")
+    manifest = {
+        "trained_at": "2026-09-06T10:00:00+00:00",
+        "horizons": [1, 2, 3],
+        "models": {
+            f"d{h}": {"model": "ridge", "artefact": "d1_ridge.joblib", "metrics": {"rmse": 10.0 + h, "r2": 0.5}}
+            for h in (1, 2, 3)
+        },
+    }
+    (bundle / "manifest.json").write_text(json.dumps(manifest))
+
+    monkeypatch.setattr(store, "MODEL_DIR", tmp_path / "models")
+    monkeypatch.setattr(store, "OFFLINE_REGISTRY", tmp_path / "models" / "registry.json")
+    (tmp_path / "models").mkdir()
+
+    version = tp.register_existing(bundle)
+
+    assert version == "local"
+    recorded = json.loads((tmp_path / "models" / "registry.json").read_text())
+    assert recorded["metrics"]["rmse_d1"] == 11.0
+    assert recorded["metrics"]["rmse_d3"] == 13.0
+    assert "registry_version" in json.loads((bundle / "manifest.json").read_text())
+
+
+def test_register_existing_refuses_without_a_bundle(tmp_path):
+    from aqi.pipelines import training_pipeline as tp
+
+    with pytest.raises(FileNotFoundError, match="no bundle"):
+        tp.register_existing(tmp_path / "nowhere")

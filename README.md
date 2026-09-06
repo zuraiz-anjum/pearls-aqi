@@ -25,14 +25,22 @@ and model registry, and Streamlit for the dashboard.
 ## Quickstart
 
 ```bash
-pip install -e ".[store,explain,app,dev]"
-cp .env.example .env          # add your AQICN token and Hopsworks key
+pip install -e ".[store,explain,api,dev]"     # Windows: `make install-windows`, see DEPLOY.md
+cp .env.example .env                          # add your AQICN token and Hopsworks key
 
 python -m aqi.pipelines.backfill --start 2022-08-01    # ~90s, 35k hourly rows
 python -m aqi.pipelines.training_pipeline              # ~15 min
 
 flask --app app.flask_app run           # the site, http://127.0.0.1:5000
-streamlit run app/dashboard.py          # the analyst dashboard
+```
+
+The Streamlit dashboard goes in **its own environment** — Streamlit needs `protobuf>=5`
+and the Hopsworks SDK needs `<5`, and no amount of pinning reconciles them. It never
+needed the SDK anyway: it reads through the API.
+
+```bash
+pip install -r requirements.txt         # the dashboard set, nothing Hopsworks in it
+AQI_API_URL=http://127.0.0.1:5000/api streamlit run app/dashboard.py
 ```
 
 No credentials to hand? Set `AQI_OFFLINE=1` and everything runs against a local parquet

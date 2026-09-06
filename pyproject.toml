@@ -18,10 +18,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-store = ["hopsworks>=3.7,<4.2"]
-deep = ["tensorflow>=2.18"]
+store = ["hopsworks[python]>=5.0", "protobuf<5"]
+deep = ["tensorflow>=2.16,<2.18"]
 explain = ["shap>=0.44", "matplotlib>=3.8"]
-app = ["streamlit>=1.32", "fastapi>=0.110", "uvicorn>=0.29", "flask>=3.0", "plotly>=5.20", "httpx>=0.27"]
+api = ["fastapi>=0.110", "uvicorn>=0.29", "flask>=3.0", "httpx>=0.27"]
+dashboard = ["streamlit>=1.49", "plotly>=5.20", "httpx>=0.27"]
 dev = ["pytest>=8.0", "ruff>=0.4", "nbconvert>=7.16", "ipykernel>=6.29"]
 
 [tool.setuptools.packages.find]

@@ -4,7 +4,7 @@
 .PHONY: install backfill ingest train dashboard api test lint clean
 
 install:
-	pip install -e ".[store,explain,app,dev]"
+	pip install -e ".[store,explain,api,dev]"
 
 backfill:
 	python -m aqi.pipelines.backfill --start 2022-08-01 -v
@@ -36,4 +36,4 @@ clean:
 # Windows: the Hopsworks SDK needs the twofish stub first (see tools/twofish-stub).
 install-windows:
 	pip install ./tools/twofish-stub
-	pip install -e ".[store,explain,app,dev]"
+	pip install -e ".[store,explain,api,dev]"
