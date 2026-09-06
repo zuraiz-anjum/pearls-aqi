@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Three-day air quality forecast for {{ city|title }}, on the US EPA AQI scale.">
+  <title>{% block title %}{{ city|title }} air quality{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="site">
+    <div class="wrap bar">
+      <a class="brand" href="{{ url_for('index') }}">Pearls AQI <span class="brand-city">{{ city|title }}</span></a>
+      <nav aria-label="Primary">
+        <a href="{{ url_for('index') }}" {% if active == 'forecast' %}aria-current="page"{% endif %}>Forecast</a>
+        <a href="{{ url_for('model_page') }}" {% if active == 'model' %}aria-current="page"{% endif %}>Model</a>
+        <a href="{{ url_for('api_predict') }}">API</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="wrap">
+    {% block main %}{% endblock %}
+  </main>
+
+  <footer class="site">
+    <div class="wrap">
+      <p>
+        AQI on the US EPA scale. Pollutant history from Open-Meteo / CAMS, live station from AQICN,
+        weather from Open-Meteo. Not a substitute for an official air quality advisory.
+      </p>
+      <p class="muted">v{{ version }}</p>
+    </div>
+  </footer>
+</body>
+</html>

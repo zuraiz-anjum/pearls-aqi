@@ -17,3 +17,7 @@ models/*
 reports/
 *.png
 !docs/*.png
+
+# local env, kept on Z: because C: is full
+.pip-cache/
+.tmp/

@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block main %}
+{% if error %}
+  <section class="notice error" aria-live="polite">
+    <h1>Forecast unavailable</h1>
+    <p>{{ error }}</p>
+    <p class="muted">On a fresh checkout: run the backfill, then the training pipeline. The README has the three commands.</p>
+  </section>
+{% else %}
+
+  {% set p = prediction %}
+
+  {% if alert and alert.triggered %}
+  <aside class="notice alert cat-{{ alert.worst.category|slug }}" role="status">
+    <strong>{{ alert.worst.category }} air expected {{ alert.worst.valid_for|day }}</strong>
+    — AQI around {{ alert.worst.aqi|num }}. {{ alert.advice }}
+  </aside>
+  {% endif %}
+
+  <section class="now" aria-labelledby="now-h">
+    <div class="now-reading cat-{{ p.current_category|slug }}">
+      <p class="eyebrow" id="now-h">Right now</p>
+      <p class="big">{{ p.current_aqi|num }}</p>
+      <p class="cat">{{ p.current_category }}</p>
+      <p class="muted small">
+        {{ p.as_of_local|when }} local
+        {% if p.dominant_pollutant %} · driven by {{ p.dominant_pollutant|upper|replace('PM25', 'PM2.5') }}{% endif %}
+        · {{ 'station' if p.current_source == 'station' else 'model grid' }}
+      </p>
+    </div>
+
+    <div class="days" role="list" aria-label="Three-day forecast">
+      {% for d in p.forecast %}
+      <div class="day cat-{{ d.category|slug }}" role="listitem">
+        <p class="eyebrow">{{ d.valid_for|day }}</p>
+        <p class="num">{{ d.aqi|num }}</p>
+        <p class="cat">{{ d.category }}</p>
+        <p class="muted small">likely {{ d.aqi_low|num }}–{{ d.aqi_high|num }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="chart-h">
+    <div class="panel-head">
+      <h2 id="chart-h">Last {{ history_days }} days and the next three</h2>
+      <p class="muted small">Shaded range is the 10th–90th percentile of out-of-sample error. It widens with horizon because the model genuinely gets worse, not because of any assumption about the distribution.</p>
+    </div>
+    <figure class="chart-wrap">
+      {{ chart|safe }}
+    </figure>
+    <ul class="legend" aria-label="Chart legend">
+      <li><span class="swatch swatch-observed"></span>Observed</li>
+      <li><span class="swatch swatch-forecast"></span>Forecast</li>
+      <li><span class="swatch swatch-band"></span>Likely range</li>
+    </ul>
+  </section>
+
+  {% if explanation and explanation.top_features %}
+  {% set feats = explanation.top_features[:6] %}
+  {% set mx = feats|map(attribute='shap')|map('abs')|max %}
+  <section class="panel" aria-labelledby="why-h">
+    <div class="panel-head">
+      <h2 id="why-h">What is driving tomorrow's number</h2>
+      <p class="muted small">
+        Starting from a baseline of {{ explanation.base_value|num }}, these move the +1 day forecast to
+        {{ explanation.prediction|num }}. Everything else combined contributes {{ explanation.other_contribution|signed }}.
+      </p>
+    </div>
+    <ol class="drivers">
+      {% for f in feats %}
+      <li>
+        <span class="driver-label">{{ f.label }}{% if f.value is not none %} <span class="muted">({{ f.value|num(1) }})</span>{% endif %}</span>
+        <span class="driver-bar" aria-hidden="true">
+          <span class="fill {{ 'up' if f.shap > 0 else 'down' }}" style="width: {{ (100 * (f.shap|abs) / mx)|round(1) }}%"></span>
+        </span>
+        <span class="driver-val {{ 'up' if f.shap > 0 else 'down' }}">{{ f.shap|signed }}</span>
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  {% if metrics %}
+  <section class="panel slim" aria-labelledby="model-h">
+    <h2 id="model-h" class="visually-hidden">Model summary</h2>
+    <p class="muted small">
+      Model trained {{ metrics.trained_at|when }} ·
+      {% for k, v in metrics.selected.items() %}{{ k }} {{ v.model }} (RMSE {{ v.rmse|num(1) }}){% if not loop.last %}, {% endif %}{% endfor %}
+      · <a href="{{ url_for('model_page') }}">full model card</a>
+    </p>
+  </section>
+  {% endif %}
+
+{% endif %}
+{% endblock %}

@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Model card · {{ city|title }} air quality{% endblock %}
+
+{% block main %}
+{% if error %}
+  <section class="notice error">
+    <h1>No trained model yet</h1>
+    <p>{{ error }}</p>
+  </section>
+{% else %}
+
+  <section class="page-head">
+    <h1>Model card</h1>
+    <p class="muted">Trained {{ info.trained_at|when }}. All figures are pooled out-of-fold from expanding-window walk-forward splits with a 24/48/72-hour embargo between train and test.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="sel-h">
+    <h2 id="sel-h">Selected model per horizon</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Horizon</th>
+            <th scope="col">Model</th>
+            <th scope="col" class="n">RMSE</th>
+            <th scope="col" class="n">MAE</th>
+            <th scope="col" class="n">R²</th>
+            <th scope="col" class="n">Category hit</th>
+            <th scope="col" class="n">Skill vs persistence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for key, v in info.selected.items() %}
+          <tr>
+            <th scope="row">+{{ key[1:] }} day{{ 's' if key[1:] != '1' else '' }}</th>
+            <td>{{ v.model }}</td>
+            <td class="n">{{ v.rmse|num(2) }}</td>
+            <td class="n">{{ v.mae|num(2) }}</td>
+            <td class="n">{{ v.r2|num(3) }}</td>
+            <td class="n">{{ v.category_hit|num(1) }}%</td>
+            <td class="n">{{ (100 * v.skill_vs_persistence)|signed }}%</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted small">
+      Skill is the fraction of the naive persistence baseline's RMSE removed. It is the number that says whether the model is doing anything at all: Lahore's median AQI is in the Unhealthy band, so a model that only ever predicts "bad" is already right most of the time.
+    </p>
+    {% for key, v in info.selected.items() %}
+      {% set why = v.selection %}
+      {% if why and why.lowest_rmse_model and why.lowest_rmse_model != v.model %}
+      <p class="muted small">
+        {{ key }}: {{ why.lowest_rmse_model }} scored marginally lower ({{ why.lowest_rmse }} vs {{ why.chosen_rmse }}), but that gap sits inside the fold-to-fold noise (tolerance {{ why.tolerance }}), so the cheaper model was taken.
+      </p>
+      {% endif %}
+    {% endfor %}
+  </section>
+
+  {% if info.leaderboard %}
+  <section class="panel" aria-labelledby="all-h">
+    <h2 id="all-h">Everything tried</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Model</th>
+            <th scope="col" class="n">Horizon</th>
+            <th scope="col" class="n">RMSE</th>
+            <th scope="col" class="n">± across folds</th>
+            <th scope="col" class="n">MAE</th>
+            <th scope="col" class="n">R²</th>
+            <th scope="col" class="n">Skill</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in info.leaderboard|sort(attribute='rmse')|sort(attribute='horizon') %}
+          <tr{% if r.model == 'persistence' %} class="muted"{% endif %}>
+            <th scope="row">{{ r.model }}</th>
+            <td class="n">+{{ r.horizon }}d</td>
+            <td class="n">{{ r.rmse|num(2) }}</td>
+            <td class="n">{{ r.rmse_std|num(2) }}</td>
+            <td class="n">{{ r.mae|num(2) }}</td>
+            <td class="n">{{ r.r2|num(3) }}</td>
+            <td class="n">{{ (100 * r.skill_vs_persistence)|signed }}%</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted small">The "± across folds" column is the honest stability signal. When models sit within a fraction of a point of each other and that column reads 4–8, they are one statistical tie, and picking the top row is picking whichever got the luckier split.</p>
+  </section>
+  {% endif %}
+
+  {% if info.ablation %}
+  <section class="panel" aria-labelledby="abl-h">
+    <h2 id="abl-h">How much comes from the weather forecast</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Horizon</th>
+            <th scope="col" class="n">With forecast weather</th>
+            <th scope="col" class="n">Without</th>
+            <th scope="col" class="n">Difference</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for key, a in info.ablation.items() %}
+          <tr>
+            <th scope="row">+{{ key[1:] }}d</th>
+            <td class="n">{{ a.with_future_weather|num(2) }}</td>
+            <td class="n">{{ a.without_future_weather|num(2) }}</td>
+            <td class="n">{{ a.delta|signed(2) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted small">RMSE, HistGBM, 3 folds. During training the forward-weather features come from reanalysis — weather that actually happened — while at serving time they come from a forecast with its own error. So the "with" column is a mild upper bound on live performance, and the gap is the honest cost of that assumption.</p>
+  </section>
+  {% endif %}
+
+  <section class="panel" aria-labelledby="data-h">
+    <h2 id="data-h">Data</h2>
+    {% set c = info.coverage or {} %}
+    <dl class="facts">
+      <div><dt>Rows in store</dt><dd>{{ c.rows|num }}</dd></div>
+      <div><dt>Span</dt><dd>{{ (c.first or '')[:10] }} → {{ (c.last or '')[:10] }}</dd></div>
+      <div><dt>Hourly coverage</dt><dd>{{ c.hourly_coverage_pct|num(1) }}%</dd></div>
+      <div><dt>Labelled</dt><dd>{{ c.aqi_present_pct|num(1) }}%</dd></div>
+      <div><dt>Median AQI</dt><dd>{{ c.aqi_median|num }}</dd></div>
+      <div><dt>95th percentile</dt><dd>{{ c.aqi_p95|num }}</dd></div>
+    </dl>
+
+    <h3>Source calibration</h3>
+    {% set cal = info.calibration or {} %}
+    {% if cal.applied %}
+      <p><code>aqi_station = {{ cal.slope|num(3) }} × aqi_cams + {{ cal.intercept|num(1) }}</code>, fitted on {{ cal.n|num }} overlapping hours{% if cal.r2 %}, R² {{ cal.r2|num(3) }}{% endif %}.</p>
+    {% else %}
+      <p>Identity for now — {{ cal.n or 0 }} overlapping hours so far.</p>
+    {% endif %}
+    <p class="muted small">History comes from the CAMS reanalysis grid; live hours come from an AQICN ground station. They disagree systematically, so once enough hours overlap a linear map from one onto the other is fitted and applied to the historical labels. Until then the mapping is the identity and this panel says so.</p>
+  </section>
+
+{% endif %}
+{% endblock %}

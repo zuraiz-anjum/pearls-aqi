@@ -8,11 +8,11 @@ One model per horizon, selected independently. Day 1 and day 3 are genuinely
 different problems - at 24h the recent trajectory dominates, by 72h it is mostly
 season and weather - and forcing one architecture onto both helps neither.
 
-The GRU is behind a flag because a walk-forward CV over three horizons costs
-roughly twenty minutes on a GitHub Actions runner, which is not a sensible thing
-to spend every single day for a model that, on this dataset, has so far not beaten
-the gradient booster. Run it weekly, or when the data volume has grown enough to
-be worth re-checking.
+The GRU is behind a flag purely on cost: a walk-forward CV over three horizons
+is minutes per fit rather than milliseconds, and roughly twenty minutes on a
+GitHub Actions runner is not a sensible thing to spend every single day. The
+weekly deep run in training-pipeline.yml is where it gets its turn, and the
+leaderboard is the only place its standing is recorded - not this docstring.
 """
 
 from __future__ import annotations

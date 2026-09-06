@@ -50,14 +50,25 @@ CITY_LON = "74.3436"
 The dashboard pulls the model from the registry on first load, so it picks up each
 nightly retrain without a redeploy.
 
-**If you also want the API deployed**, any container host will do:
+**The Flask site** is the thing to put in front of people who are not analysts. It is
+plain WSGI, so any Python host works — Render, Railway, Fly, a $5 VPS with gunicorn:
+
+```bash
+gunicorn "app.flask_app:app" --bind 0.0.0.0:${PORT:-5000} --workers 2
+```
+
+Same environment variables as the Streamlit app. It serves the JSON routes under `/api`
+too, so it can be the *only* thing you deploy if you want one process.
+
+**If you want the FastAPI service as well** — it has the OpenAPI docs and typed params —
+any container host will do:
 
 ```bash
 uvicorn app.api:app --host 0.0.0.0 --port ${PORT:-8000}
 ```
 
-Then set `AQI_API_URL` on the Streamlit app and it will route through the API instead of
-importing the model in-process.
+Set `AQI_API_URL` on the Streamlit app to either the Flask `/api` base or the FastAPI root
+and it will route through that instead of importing the model in-process.
 
 ## 4. Things that will actually go wrong
 

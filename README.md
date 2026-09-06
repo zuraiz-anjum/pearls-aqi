@@ -14,7 +14,10 @@ and model registry, and Streamlit for the dashboard.
                                                  │                                   │
                                                  └──────────► inference ◄────────────┘
                                                                   │
-                                                    FastAPI ──► Streamlit dashboard
+                                                            app/service.py
+                                                        ┌─────────┼─────────┐
+                                                      Flask    FastAPI   Streamlit
+                                                     (site)    (JSON)   (dashboard)
 ```
 
 ---
@@ -27,7 +30,9 @@ cp .env.example .env          # add your AQICN token and Hopsworks key
 
 python -m aqi.pipelines.backfill --start 2022-08-01    # ~90s, 35k hourly rows
 python -m aqi.pipelines.training_pipeline              # ~15 min
-streamlit run app/dashboard.py
+
+flask --app app.flask_app run           # the site, http://127.0.0.1:5000
+streamlit run app/dashboard.py          # the analyst dashboard
 ```
 
 No credentials to hand? Set `AQI_OFFLINE=1` and everything runs against a local parquet
@@ -216,10 +221,14 @@ src/aqi/
   sources/             AQICN and Open-Meteo clients
   pipelines/           backfill / feature / training entry points
 app/
-  api.py               FastAPI
-  dashboard.py         Streamlit
-notebooks/eda.ipynb    exploratory analysis
-tests/                 86 tests, mostly about leakage and serving
+  service.py           the one place the web layer talks to the model
+  flask_app.py         Flask: server-rendered forecast page, model card, JSON under /api
+  api.py               FastAPI: the same JSON routes, with OpenAPI docs at /docs
+  svgchart.py          the forecast chart as inline SVG, no JS, no CDN
+  templates/, static/  Jinja pages and one hand-written stylesheet
+  dashboard.py         Streamlit: the analyst view with interactive Plotly charts
+notebooks/eda.ipynb    exploratory analysis, executed with outputs
+tests/                 leakage, serving, the chart renderer, both web apps
 ```
 
 ## Automation
@@ -238,9 +247,31 @@ skipping an hour under load. The hourly job re-fetches the last three days every
 skipped hour is repaired by the next one rather than leaving a permanent hole. Primary key
 is `(city, ts)`, so replays are upserts.
 
-## API
+## Web layer
+
+Three front doors, one service layer. The brief lists Flask, FastAPI and Streamlit; the
+honest way to ship all three without three copies of the logic is for none of them to
+contain any. Everything that could drift lives once in `app/service.py`, and the
+frameworks are adapters over it.
+
+**Flask** — the public site. Server-rendered from Jinja, the chart is inline SVG built in
+`app/svgchart.py`, no JavaScript on the critical path, no CDN. It renders complete on first
+byte, works with scripts disabled, and prints properly.
 
 ```
+flask --app app.flask_app run --port 5000
+
+GET /                    the forecast: current reading, three days, chart, what's driving it
+GET /model               model card: leaderboard, ablation, calibration, data coverage
+GET /healthz
+GET /api/...             the JSON routes below, same shapes
+```
+
+**FastAPI** — the JSON API, with typed params and generated docs at `/docs`.
+
+```
+uvicorn app.api:app --port 8000
+
 GET /health              liveness, plus which models are loaded and when they trained
 GET /predict             the three-day forecast
 GET /explain/{horizon}   SHAP contributions for the current prediction
@@ -250,9 +281,16 @@ GET /metrics             leaderboard, coverage, calibration, ablation
 GET /alerts              evaluate the alert rule without sending anything
 ```
 
-The dashboard hits these when `AQI_API_URL` is set, and calls the same functions in-process
-when it is not — so the demo is one command but the deployed version still crosses a real
-API boundary.
+**Streamlit** — the analyst dashboard: interactive Plotly charts, SHAP per horizon, the
+full leaderboard. It hits either API when `AQI_API_URL` is set, and calls the service layer
+in-process when it is not, so the demo is one command but the deployed version still crosses
+a real API boundary.
+
+On the design of the Flask pages: colour is used for exactly one thing, the AQI category,
+and every category is also named in text so colour never carries meaning alone. The
+official EPA swatches are for filled blocks and fail contrast as text (#ffff00 on white), so
+`svgchart.CATEGORY_INK` holds darkened versions that clear 4.5:1, with a lightened set for
+dark mode. Numbers are tabular. There are no icons.
 
 ## Alerting
 
