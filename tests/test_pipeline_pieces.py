@@ -526,6 +526,23 @@ def test_hist_gbm_fits_when_a_column_has_no_observed_values():
     assert list(model.feature_names_in_) == ["a", "b", "co_iaqi"]
 
 
+def test_hist_gbm_fits_when_a_sparse_column_lands_only_in_the_validation_split():
+    # What the training cron actually hit: the column has a reading, but early
+    # stopping's internal split put every reading in the validation part, so
+    # the binner saw an all-NaN column. random_state=5 does that for this frame
+    # with stock sklearn 1.9.
+    from aqi.models import make_tabular_models
+
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame({"a": rng.normal(size=400), "b": rng.normal(size=400), "co_iaqi": np.nan})
+    X.loc[399, "co_iaqi"] = 5.0
+    y = 3 * X["a"]
+
+    model = make_tabular_models(seed=5)["hist_gbm"].set_params(max_iter=20)
+    model.fit(X, y)
+    assert np.isfinite(model.predict(X)).all()
+
+
 def test_hist_gbm_unchanged_on_complete_data():
     from sklearn.ensemble import HistGradientBoostingRegressor
 

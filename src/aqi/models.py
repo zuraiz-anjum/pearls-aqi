@@ -86,31 +86,27 @@ class NanSafeHistGradientBoostingRegressor(HistGradientBoostingRegressor):
     """HistGradientBoostingRegressor that tolerates a column with no observed values.
 
     sklearn's binner computes midpoints between a feature's distinct values and,
-    in recent releases (1.9 here), raises "window shape cannot be larger than input array shape"
-    when a column is entirely NaN in the rows it is fitting on. That happens for
-    real here: the live station stopped reporting the gas sub-indices, so in the
-    early walk-forward folds co/no2/o3/pm10/so2_iaqi are all missing.
+    in recent releases (1.9 here), raises "window shape cannot be larger than
+    input array shape" when a column is entirely NaN in the rows it bins. That
+    happens for real: the live station stopped reporting the gas sub-indices, so
+    co/no2/o3/pm10/so2_iaqi are missing in the early walk-forward folds, and with
+    early stopping the binner only sees the training part of the internal split,
+    so a column with a few recent readings can still be empty there.
 
-    Such a column carries no information, so it is set to a constant before the
-    fit. A constant feature is never split on, which makes this identical to
-    dropping it, while the column names (and so explain/SHAP) stay as they were.
-    Prediction is untouched: no tree references the column.
+    The hook is the binning step itself, after that split. An all-NaN column is
+    set to a constant, which gives it a single bin that is never split on: the
+    same model as dropping it, with the column names (and explain/SHAP) intact.
+    On data without such a column this is a no-op.
     """
 
-    def fit(self, X, y, sample_weight=None):
-        if isinstance(X, pd.DataFrame):
-            empty = [c for c in X.columns if X[c].isna().all()]
-            if empty and len(X):
-                X = X.copy()
-                X[empty] = 0.0
-        else:
-            arr = np.asarray(X, dtype="float64")
-            empty = np.isnan(arr).all(axis=0) if arr.ndim == 2 and len(arr) else np.zeros(0, bool)
+    def _bin_data(self, X, *args, **kwargs):
+        X = np.asarray(X)
+        if X.ndim == 2 and len(X) and X.dtype.kind == "f":
+            empty = np.isnan(X).all(axis=0)
             if empty.any():
-                arr = arr.copy()
-                arr[:, empty] = 0.0
-                X = arr
-        return super().fit(X, y, sample_weight=sample_weight)
+                X = X.copy(order="K")
+                X[:, empty] = 0.0
+        return super()._bin_data(X, *args, **kwargs)
 
 
 def make_tabular_models(seed: int = 42) -> dict:
