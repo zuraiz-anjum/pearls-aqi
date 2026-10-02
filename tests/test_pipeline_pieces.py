@@ -508,3 +508,33 @@ def test_aqicn_request_errors_never_carry_the_token(monkeypatch):
         aqicn.fetch_current()
     assert "SECRET-TOKEN-VALUE" not in str(err.value)
     assert err.value.__cause__ is None and err.value.__suppress_context__  # `from None`: the URL never prints
+
+
+def test_hist_gbm_fits_when_a_column_has_no_observed_values():
+    # The live station stopped sending the gas sub-indices, so in the early
+    # walk-forward folds those columns are entirely NaN. sklearn 1.9's binner
+    # crashed on that with "window shape cannot be larger than input array shape".
+    from aqi.models import make_tabular_models
+
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame({"a": rng.normal(size=400), "b": rng.normal(size=400), "co_iaqi": np.nan})
+    y = 3 * X["a"] + rng.normal(scale=0.1, size=400)
+
+    model = make_tabular_models()["hist_gbm"].set_params(max_iter=20, early_stopping=False)
+    model.fit(X, y)
+    assert np.isfinite(model.predict(X)).all()
+    assert list(model.feature_names_in_) == ["a", "b", "co_iaqi"]
+
+
+def test_hist_gbm_unchanged_on_complete_data():
+    from sklearn.ensemble import HistGradientBoostingRegressor
+
+    from aqi.models import make_tabular_models
+
+    rng = np.random.default_rng(1)
+    X = pd.DataFrame({"a": rng.normal(size=400), "b": rng.normal(size=400)})
+    y = X["a"] - X["b"] + rng.normal(scale=0.1, size=400)
+
+    ours = make_tabular_models()["hist_gbm"].fit(X, y)
+    plain = HistGradientBoostingRegressor(**ours.get_params()).fit(X, y)
+    np.testing.assert_array_equal(ours.predict(X), plain.predict(X))

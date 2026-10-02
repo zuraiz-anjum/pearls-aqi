@@ -82,6 +82,37 @@ class PersistenceBaseline(BaseEstimator, RegressorMixin):
         return np.where(np.isnan(preds), self.fallback_, preds)
 
 
+class NanSafeHistGradientBoostingRegressor(HistGradientBoostingRegressor):
+    """HistGradientBoostingRegressor that tolerates a column with no observed values.
+
+    sklearn's binner computes midpoints between a feature's distinct values and,
+    in recent releases (1.9 here), raises "window shape cannot be larger than input array shape"
+    when a column is entirely NaN in the rows it is fitting on. That happens for
+    real here: the live station stopped reporting the gas sub-indices, so in the
+    early walk-forward folds co/no2/o3/pm10/so2_iaqi are all missing.
+
+    Such a column carries no information, so it is set to a constant before the
+    fit. A constant feature is never split on, which makes this identical to
+    dropping it, while the column names (and so explain/SHAP) stay as they were.
+    Prediction is untouched: no tree references the column.
+    """
+
+    def fit(self, X, y, sample_weight=None):
+        if isinstance(X, pd.DataFrame):
+            empty = [c for c in X.columns if X[c].isna().all()]
+            if empty and len(X):
+                X = X.copy()
+                X[empty] = 0.0
+        else:
+            arr = np.asarray(X, dtype="float64")
+            empty = np.isnan(arr).all(axis=0) if arr.ndim == 2 and len(arr) else np.zeros(0, bool)
+            if empty.any():
+                arr = arr.copy()
+                arr[:, empty] = 0.0
+                X = arr
+        return super().fit(X, y, sample_weight=sample_weight)
+
+
 def make_tabular_models(seed: int = 42) -> dict:
     """Name -> unfitted estimator. Hyperparameters are sane defaults, lightly tuned.
 
@@ -125,7 +156,7 @@ def make_tabular_models(seed: int = 42) -> dict:
         ),
         # No imputer: HistGBM routes NaN down its own branch, which is strictly
         # better than pretending a missing reading equals the median.
-        "hist_gbm": HistGradientBoostingRegressor(
+        "hist_gbm": NanSafeHistGradientBoostingRegressor(
             max_iter=500,
             learning_rate=0.06,
             max_leaf_nodes=31,

@@ -6,6 +6,15 @@ import pytest
 
 pytest.importorskip("flask")
 
+from aqi.config import MODEL_DIR  # noqa: E402
+
+# The export renders the forecast page, which needs a trained bundle. CI does not
+# train (models/ is not committed), so skip like test_flask.py and test_api.py do.
+pytestmark = pytest.mark.skipif(
+    not (MODEL_DIR / "bundle" / "manifest.json").exists(),
+    reason="no trained bundle in this checkout",
+)
+
 
 def test_export_writes_site_and_api_with_base_path(tmp_path):
     from aqi.publish import export
