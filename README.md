@@ -1,8 +1,46 @@
-# Pearls AQI Predictor — Lahore
+# Pearls AQI
 
-Three-day air quality forecast for Lahore, built on a stack that costs nothing to run:
-free data APIs, GitHub Actions for scheduling, Hopsworks free tier for the feature store
-and model registry, and Streamlit for the dashboard.
+**A three-day air quality forecast for Lahore that runs itself every hour and costs nothing to host.**
+
+[![CI](https://github.com/zuraiz-anjum/pearls-aqi/actions/workflows/ci.yml/badge.svg)](https://github.com/zuraiz-anjum/pearls-aqi/actions/workflows/ci.yml)
+[![Feature pipeline](https://github.com/zuraiz-anjum/pearls-aqi/actions/workflows/feature-pipeline.yml/badge.svg)](https://github.com/zuraiz-anjum/pearls-aqi/actions/workflows/feature-pipeline.yml)
+![Tests](https://img.shields.io/badge/tests-85%20passing-brightgreen)
+![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
+
+**Live forecast:** https://zuraiz-anjum.github.io/pearls-aqi/
+
+![Pearls AQI forecast page](docs/screenshot.png)
+
+![Demo](docs/demo.gif)
+<!-- Record docs/demo.gif: the forecast page, the model card, then the JSON API. -->
+
+## What it does
+
+Every hour a GitHub Actions job pulls station readings and weather, computes AQI the way
+the EPA defines it, writes features to a Hopsworks feature store and republishes the
+forecast site. Once a day another job retrains one model per horizon and registers the
+winner. The page shows today's AQI, the next three days with an honest error band, and
+what is driving tomorrow's number. There is no server: the hourly job renders the site
+and a JSON API as static files on GitHub Pages.
+
+## By the numbers
+
+| | |
+|---|---|
+| Automated tests | 85 passing, 3 skipped, 0 failing (`pytest`) |
+| Training data | 35,977 hourly rows, Aug 2022 to Sep 2026 |
+| Next-day accuracy | RMSE 13.1, R² 0.84, 42% better than a persistence baseline (out-of-fold, embargoed) |
+| Live page load | median 0.18 s, p90 0.20 s (10 requests to the live site) |
+| JSON API | median 0.17 s, p90 0.21 s (10 requests to `api/predict.json`) |
+| Hosting cost | $0: GitHub Actions, GitHub Pages and the Hopsworks free tier |
+| Code size | about 4,820 lines of Python (non-blank) |
+
+## Architecture at a glance
+
+Two scheduled pipelines and one shared service. The feature pipeline ingests AQICN and
+Open-Meteo every hour; the training pipeline fits ridge, random forest, gradient boosting
+and a GRU per horizon and keeps the best. `app/service.py` is the only thing that talks
+to the model, and Flask, FastAPI and Streamlit are thin views over it:
 
 ```
                  hourly (GitHub Actions cron)          daily (GitHub Actions cron)
@@ -22,7 +60,7 @@ and model registry, and Streamlit for the dashboard.
 
 ## Live
 
-**https://zuraiz-anjum.github.io/pearls-aqi/** — the forecast page and the model card,
+**https://zuraiz-anjum.github.io/pearls-aqi/**, the forecast page and the model card,
 re-rendered every hour by the same GitHub Actions run that ingests the data, and served
 by GitHub Pages. No server; the hourly job renders what Flask would have said and
 publishes the files. The JSON routes are there too, as files:
@@ -58,7 +96,7 @@ python -m aqi.pipelines.training_pipeline              # ~15 min
 flask --app app.flask_app run           # the site, http://127.0.0.1:5000
 ```
 
-The Streamlit dashboard goes in **its own environment** — Streamlit needs `protobuf>=5`
+The Streamlit dashboard goes in **its own environment**, Streamlit needs `protobuf>=5`
 and the Hopsworks SDK needs `<5`, and no amount of pinning reconciles them. It never
 needed the SDK anyway: it reads through the API.
 
@@ -68,7 +106,7 @@ AQI_API_URL=http://127.0.0.1:5000/api streamlit run app/dashboard.py
 ```
 
 No credentials to hand? Set `AQI_OFFLINE=1` and everything runs against a local parquet
-store instead of Hopsworks. The backfill needs no key at all — Open-Meteo is keyless — so
+store instead of Hopsworks. The backfill needs no key at all, Open-Meteo is keyless, so
 you can get to a trained model and a working dashboard without signing up for anything.
 
 ---
@@ -84,8 +122,8 @@ AQICN's free token serves one thing: the current reading from a station, plus a 
 forward forecast. There is no historical endpoint. So there is no way to build a training
 set from AQICN alone, and the brief needs one.
 
-History therefore comes from Open-Meteo's CAMS reanalysis — hourly pollutant
-concentrations back to August 2022, no key required — and the live hourly feed comes from
+History therefore comes from Open-Meteo's CAMS reanalysis, hourly pollutant
+concentrations back to August 2022, no key required, and the live hourly feed comes from
 the AQICN station as specified.
 
 Which creates the obvious problem: a ~9 km model grid cell and one rooftop in Lahore do
@@ -102,14 +140,14 @@ otherwise flatten four years of labels in a single run.
 
 ### AQI is computed on averaging windows, not instantaneous readings
 
-The EPA index is defined on rolling averages — 24 hours for PM2.5 and PM10, 8 for ozone
+The EPA index is defined on rolling averages, 24 hours for PM2.5 and PM10, 8 for ozone
 and CO, 1 for NO₂ and SO₂. Feeding instantaneous hourly concentrations into those
 breakpoint tables produces an index far spikier than any real station reports, and no
 linear calibration can put that variance back afterwards.
 
 `aqi_math.epa_averages` applies the right window per pollutant before the lookup. The raw
 instantaneous concentrations stay in the frame as model features, because they are useful
-in their own right — it is only the label that needs averaging.
+in their own right, it is only the label that needs averaging.
 
 One consequence worth knowing: the AQI has to be computed over the whole concatenated
 series, not per chunk, or you get a visible artefact at every quarter boundary where a
@@ -131,7 +169,7 @@ horizon feature has to compromise between the two, and does both jobs worse.
 ### The forward weather features, and why the ablation exists
 
 `f1_wind_mean`, `f3_blh_min` and friends aggregate weather over each forecast window.
-Feeding the model tomorrow's weather is not leakage in the operational sense — a numerical
+Feeding the model tomorrow's weather is not leakage in the operational sense, a numerical
 weather forecast for +72h genuinely exists at prediction time and is far more skilful than
 any air quality forecast. Every real AQI system uses them.
 
@@ -151,7 +189,7 @@ a perfectly respectable R². Quoting R² against zero would make a useless model
 
 So `PersistenceBaseline` is in the model zoo, every leaderboard row carries
 `skill_vs_persistence` (the fraction of the naive model's RMSE removed), and the training
-pipeline logs a warning if nothing beats it — which would mean the features are not
+pipeline logs a warning if nothing beats it, which would mean the features are not
 earning their keep, regardless of what the R² column says.
 
 ### Validation embargoes the target window
@@ -161,7 +199,7 @@ after training ends, the last few hundred training rows have targets reaching in
 window, and the model is scored on data it effectively saw.
 
 Every walk-forward split therefore embargoes `24 × horizon` hours between train and test.
-It costs three days per fold and it is not optional — without it R² comes out
+It costs three days per fold and it is not optional, without it R² comes out
 suspiciously, and falsely, high. There is a test asserting the gap holds for every horizon,
 and another that truncating the frame does not change any previously-computed backward
 feature, which is how a forward-reaching rolling window gets caught.
@@ -170,7 +208,7 @@ feature, which is how a forward-reaching rolling window gets caught.
 
 ## Results
 
-35,977 hourly rows, Aug 2022 – Sep 2026, 100% hourly coverage. Pooled out-of-fold
+35,977 hourly rows, Aug 2022 to Sep 2026, 100% hourly coverage. Pooled out-of-fold
 across 5 expanding-window folds with the embargo described above (3 folds for the GRU,
 which costs minutes per fit rather than milliseconds). Full table in
 `reports/leaderboard.csv`; both the Flask model card and the dashboard render it.
@@ -196,8 +234,8 @@ RMSE for everything tried:
 ### Reading these honestly
 
 **Ridge is selected at all three horizons**, and the interesting part is *how close*
-the field is — the three tabular models sit within 0.65 RMSE of each other at every
-horizon, while the fold-to-fold standard deviation is 3.9–8.1. They are one statistical
+the field is, the three tabular models sit within 0.65 RMSE of each other at every
+horizon, while the fold-to-fold standard deviation is 3.9 to 8.1. They are one statistical
 tie. Random Forest has the lowest pooled number at every horizon; `select_model` took
 Ridge because the gap is well inside the noise and the artifact is 10,000× smaller.
 
@@ -209,7 +247,7 @@ bundle is 296 KB.
 
 **The GRU lost, and that is worth saying plainly.** A two-layer GRU over a 72-hour
 window with the calendar and forward-weather features as static inputs beats
-persistence comfortably at every horizon — so it is learning — but trails every tabular
+persistence comfortably at every horizon, so it is learning, but trails every tabular
 model: 14.4 / 25.7 / 29.1 against Ridge's 13.1 / 24.4 / 26.1, and by day 3 its R² is
 0.06. With ~36k hourly windows there is not enough signal for a sequence model to
 rediscover what the hand-built lags already encode, and a bigger network would only
@@ -227,7 +265,7 @@ not a great one.
 **Season is the bigger lever than the day.** The swing between the best and worst
 monthly medians is 95 AQI; the standard deviation of daily means is 39. That is why
 the cyclical day-of-year encodings and the smog-season flag are in the feature set, and
-why persistence — which knows nothing about season — is such a low bar in January.
+why persistence, which knows nothing about season, is such a low bar in January.
 
 **Rain does what you would hope, and the effect survives controlling for season.**
 Across all hours, wet days (over 1 mm in 24 h) average AQI 131 against 154 dry. That
@@ -239,11 +277,11 @@ forward precipitation features.
 **Bad air arrives in regimes, not spikes.** 118 of 1,497 days sit at Unhealthy or
 worse, in 37 distinct episodes with a median length of two days and a longest of
 twelve. That structure is exactly what a three-day model can capture, and it is why
-the alerting rule — which needs the *lower* bound of the interval to clear the
-threshold — is workable rather than a coin flip.
+the alerting rule, which needs the *lower* bound of the interval to clear the
+threshold, is workable rather than a coin flip.
 
-**Category hit rate** — the share of predictions landing in the correct EPA health
-band — is arguably the number that matters for a dashboard someone acts on. 78% at
+**Category hit rate**, the share of predictions landing in the correct EPA health
+band, is arguably the number that matters for a dashboard someone acts on. 78% at
 day 1, 59% at day 3.
 
 ### The forward-weather ablation
@@ -260,7 +298,7 @@ above.
 This is the result I found most satisfying, because it says something physical. At one
 day out the recent trajectory already contains everything useful and the weather
 columns are net noise. By three days out that signal has decayed and the weather
-forecast is carrying 6 RMSE points — and look at the "without" column: 31.73 is *worse
+forecast is carrying 6 RMSE points, and look at the "without" column: 31.73 is *worse
 than persistence* (31.03). Strip the weather forecast out and a gradient booster on
 three days of lags does no better at day 3 than carrying yesterday forward. The entire
 day-3 skill is the weather.
@@ -308,10 +346,10 @@ tests/                 leakage, serving, the chart renderer, both web apps
 
 Repository secrets needed: `AQICN_TOKEN`, `HOPSWORKS_API_KEY`, `HOPSWORKS_PROJECT`, and
 optionally `ALERT_WEBHOOK_URL`. The cluster host (`HOPSWORKS_HOST`) is not a secret and is
-set as a plain env in the workflow files — change it there if your cluster is somewhere
+set as a plain env in the workflow files, change it there if your cluster is somewhere
 other than `eu-west.cloud.hopsworks.ai`, or blank it for serverless.
 
-GitHub's scheduler is best-effort and routinely fires 5–20 minutes late, occasionally
+GitHub's scheduler is best-effort and routinely fires 5 to 20 minutes late, occasionally
 skipping an hour under load. The hourly job re-fetches the last three days every run, so a
 skipped hour is repaired by the next one rather than leaving a permanent hole. Primary key
 is `(city, ts)`, so replays are upserts.
@@ -323,7 +361,7 @@ honest way to ship all three without three copies of the logic is for none of th
 contain any. Everything that could drift lives once in `app/service.py`, and the
 frameworks are adapters over it.
 
-**Flask** — the public site. Server-rendered from Jinja, the chart is inline SVG built in
+**Flask**, the public site. Server-rendered from Jinja, the chart is inline SVG built in
 `app/svgchart.py`, no JavaScript on the critical path, no CDN. It renders complete on first
 byte, works with scripts disabled, and prints properly.
 
@@ -336,7 +374,7 @@ GET /healthz
 GET /api/...             the JSON routes below, same shapes
 ```
 
-**FastAPI** — the JSON API, with typed params and generated docs at `/docs`.
+**FastAPI**, the JSON API, with typed params and generated docs at `/docs`.
 
 ```
 uvicorn app.api:app --port 8000
@@ -350,7 +388,7 @@ GET /metrics             leaderboard, coverage, calibration, ablation
 GET /alerts              evaluate the alert rule without sending anything
 ```
 
-**Streamlit** — the analyst dashboard: interactive Plotly charts, SHAP per horizon, the
+**Streamlit**, the analyst dashboard: interactive Plotly charts, SHAP per horizon, the
 full leaderboard. It hits either API when `AQI_API_URL` is set, and calls the service layer
 in-process when it is not, so the demo is one command but the deployed version still crosses
 a real API boundary.
@@ -372,8 +410,8 @@ from being noise:
 - Alerts are fingerprinted by (day, category) and suppressed for 12 hours. Otherwise the
   hourly pipeline sends the same warning 24 times for one bad day.
 
-The payload includes a plain-language SHAP summary — "mainly driven by average AQI over the
-last 24h (188), forecast wind (4 km/h), smog season" — so the alert says why, not just what.
+The payload includes a plain-language SHAP summary, "mainly driven by average AQI over the
+last 24h (188), forecast wind (4 km/h), smog season", so the alert says why, not just what.
 
 ---
 
@@ -382,7 +420,7 @@ last 24h (188), forecast wind (4 km/h), smog season" — so the alert says why, 
 Listed because they are real, not to be modest about it.
 
 - **The station calibration is identity and will stay so for a couple of days.** It needs
-  overlapping hours of CAMS and station readings, and until 6 Sep 2026 there were none —
+  overlapping hours of CAMS and station readings, and until 6 Sep 2026 there were none , 
   not for lack of code, but because the only AQICN station the keyword search returns for
   Lahore (the US Embassy monitor) went silent in February 2025 and kept serving that last
   reading. The pipeline now reads the Punjab EPA's Egerton Road monitor (`@-576577`, one of
@@ -392,12 +430,12 @@ Listed because they are real, not to be modest about it.
 - **Offline metrics are an upper bound**, for the forward-weather reason above. The
   ablation column tells you by how much.
 - **The prediction interval is empirical, not calibrated.** It assumes residual spread is
-  roughly stationary, and it is not — errors are materially wider in smog season than in
+  roughly stationary, and it is not, errors are materially wider in smog season than in
   April. It is honest about being a rough band rather than a guarantee.
 - **Model selection prefers the cheap artifact on purpose.** When several models sit
   within fold-noise of each other, `select_model` takes the smallest, which on this data
-  has meant Ridge every time. If a future retrain shows a tree model *clearly* ahead — a
-  gap larger than a quarter of the fold-to-fold standard deviation — it will be selected;
+  has meant Ridge every time. If a future retrain shows a tree model *clearly* ahead, a
+  gap larger than a quarter of the fold-to-fold standard deviation, it will be selected;
   until then a 296 KB bundle beats a 300 MB one that scores the same.
 - **One station, one city.** The schema is keyed on `city` and the config is
   environment-driven, so a second city is a config change rather than a rewrite, but nothing
@@ -415,7 +453,7 @@ Listed because they are real, not to be modest about it.
 | Weather | [Open-Meteo](https://open-meteo.com/) | ERA5 archive (5-day lag) stitched to the forecast endpoint |
 
 AQI is on the US EPA scale throughout, using the legacy PM2.5 breakpoints rather than the
-Feb 2024 revision — WAQI still publishes against the legacy table, and matching our live
+Feb 2024 revision, WAQI still publishes against the legacy table, and matching our live
 label source matters more here than matching the newest regulation.
 
 Not a substitute for an official air quality advisory.
