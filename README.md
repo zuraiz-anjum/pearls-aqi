@@ -11,9 +11,6 @@
 
 ![Pearls AQI forecast page](docs/screenshot.png)
 
-![Demo](docs/demo.gif)
-<!-- Record docs/demo.gif: the forecast page, the model card, then the JSON API. -->
-
 ## What it does
 
 Every hour a GitHub Actions job pulls station readings and weather, computes AQI the way
