@@ -16,6 +16,7 @@ before "now", which is the worst possible place for a gap in a forecaster.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
@@ -42,6 +43,8 @@ AIR_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 TIMEOUT = 60
+ATTEMPTS = 4
+BACKOFF = 20  # seconds, times the attempt number
 
 _AIR_VARS = {
     "pm2_5": "pm25",
@@ -84,11 +87,28 @@ def _hourly_frame(payload: dict, mapping: dict) -> pd.DataFrame:
 
 
 def _request(url: str, params: dict) -> dict:
-    resp = requests.get(url, params=params, timeout=TIMEOUT)
-    if resp.status_code >= 400:
-        # Open-Meteo puts a genuinely useful message in the body on 400s.
-        raise RuntimeError(f"{url} -> {resp.status_code}: {resp.text[:300]}")
-    return resp.json()
+    # Open-Meteo stalls now and then (a TLS handshake that never finishes, a
+    # 502). Those cleared within minutes every time, but a single attempt turned
+    # the hourly run red. Retry those; a 4xx is our mistake and fails at once.
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            resp = requests.get(url, params=params, timeout=TIMEOUT)
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            if attempt == ATTEMPTS:
+                raise
+            log.warning("%s: %s, retrying (%d/%d)", url, type(exc).__name__, attempt, ATTEMPTS)
+        else:
+            if resp.status_code == 429 or resp.status_code >= 500:
+                if attempt == ATTEMPTS:
+                    raise RuntimeError(f"{url} -> {resp.status_code}: {resp.text[:300]}")
+                log.warning("%s -> %s, retrying (%d/%d)", url, resp.status_code, attempt, ATTEMPTS)
+            elif resp.status_code >= 400:
+                # Open-Meteo puts a genuinely useful message in the body on 400s.
+                raise RuntimeError(f"{url} -> {resp.status_code}: {resp.text[:300]}")
+            else:
+                return resp.json()
+        time.sleep(BACKOFF * attempt)
+    raise AssertionError("unreachable")
 
 
 def fetch_air_quality(start: str | date, end: str | date) -> pd.DataFrame:

@@ -26,7 +26,10 @@ concurrency:
 jobs:
   train:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # The GRU spends about half an hour per horizon, so the deep run needs well
+    # over the 45 minutes that is plenty for the daily one. At 45 it was cut off
+    # every Sunday.
+    timeout-minutes: ${{ (inputs.deep || github.event.schedule == '0 3 * * 0') && 180 || 45 }}
 
     env:
       HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}

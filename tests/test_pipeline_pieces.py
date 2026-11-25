@@ -555,3 +555,83 @@ def test_hist_gbm_unchanged_on_complete_data():
     ours = make_tabular_models()["hist_gbm"].fit(X, y)
     plain = HistGradientBoostingRegressor(**ours.get_params()).fit(X, y)
     np.testing.assert_array_equal(ours.predict(X), plain.predict(X))
+
+
+def test_openmeteo_retries_a_stalled_request(monkeypatch):
+    # The hourly ingest went red whenever one handshake with api.open-meteo.com
+    # timed out, though the next run always got through.
+    import requests
+
+    from aqi.sources import openmeteo
+
+    calls = []
+
+    class Ok:
+        status_code = 200
+
+        def json(self):
+            return {"hourly": {}}
+
+    def flaky(url, **kw):
+        calls.append(url)
+        if len(calls) < 3:
+            raise requests.ReadTimeout("handshake timed out")
+        return Ok()
+
+    monkeypatch.setattr(openmeteo.requests, "get", flaky)
+    monkeypatch.setattr(openmeteo.time, "sleep", lambda s: None)
+    assert openmeteo._request("https://example.invalid", {}) == {"hourly": {}}
+    assert len(calls) == 3
+
+
+def test_openmeteo_gives_up_and_does_not_retry_a_bad_request(monkeypatch):
+    import requests
+
+    from aqi.sources import openmeteo
+
+    monkeypatch.setattr(openmeteo.time, "sleep", lambda s: None)
+
+    def always_down(url, **kw):
+        raise requests.ConnectionError("down")
+
+    monkeypatch.setattr(openmeteo.requests, "get", always_down)
+    with pytest.raises(requests.ConnectionError):
+        openmeteo._request("https://example.invalid", {})
+
+    calls = []
+
+    class Bad:
+        status_code = 400
+        text = "Parameter 'hourly' is invalid"
+
+    def bad(url, **kw):
+        calls.append(url)
+        return Bad()
+
+    monkeypatch.setattr(openmeteo.requests, "get", bad)
+    with pytest.raises(RuntimeError, match="400"):
+        openmeteo._request("https://example.invalid", {})
+    assert len(calls) == 1
+
+
+def test_hopsworks_login_is_retried(monkeypatch):
+    # The 24 Nov training run died in hopsworks.login(), inside the SDK's
+    # version check; the next day the same code logged in fine.
+    import sys
+    import types
+
+    from aqi import store
+
+    attempts = []
+
+    def login(**kw):
+        attempts.append(kw)
+        if len(attempts) == 1:
+            raise AttributeError("'NoneType' object has no attribute 'group'")
+        return types.SimpleNamespace(name="demo")
+
+    monkeypatch.setitem(sys.modules, "hopsworks", types.SimpleNamespace(login=login))
+    monkeypatch.setattr(store, "_project", None)
+    monkeypatch.setattr(store.time, "sleep", lambda s: None)
+    assert store.get_project().name == "demo"
+    assert len(attempts) == 2

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import time
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +27,8 @@ OFFLINE_FEATURES = PROCESSED_DIR / "features.parquet"
 OFFLINE_REGISTRY = MODEL_DIR / "registry.json"
 
 _project = None
+LOGIN_ATTEMPTS = 3
+LOGIN_BACKOFF = 30  # seconds, times the attempt number
 
 
 def get_project():
@@ -47,7 +50,18 @@ def get_project():
         kwargs["host"] = settings.hopsworks_host
         kwargs["port"] = settings.hopsworks_port
 
-    _project = hopsworks.login(**kwargs)
+    # The cluster occasionally answers the login with a version string the SDK
+    # cannot parse (AttributeError in _check_compatibility) or drops the
+    # connection. Both cleared on the next try, so give it a few.
+    for attempt in range(1, LOGIN_ATTEMPTS + 1):
+        try:
+            _project = hopsworks.login(**kwargs)
+            break
+        except Exception as exc:
+            if attempt == LOGIN_ATTEMPTS:
+                raise
+            log.warning("Hopsworks login failed (%s), retrying (%d/%d)", type(exc).__name__, attempt, LOGIN_ATTEMPTS)
+            time.sleep(LOGIN_BACKOFF * attempt)
     log.info("connected to Hopsworks project %s at %s", _project.name, settings.hopsworks_host or "app.hopsworks.ai")
     return _project
 
